@@ -1,0 +1,96 @@
+---
+title: "Macro core: recession risk and regimes"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Macro core: recession risk and regimes}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 3.5)
+```
+
+This vignette walks through the Phase 1 macro workflow, the kind of analysis
+that feeds an asset allocation committee or a bank ALCO briefing. It uses the
+bundled **synthetic** dataset so it runs offline. Pass `source = "fred"` with a
+`FRED_API_KEY` set to use real data.
+
+```{r}
+library(econkit)
+d <- ek_get_series()
+head(ek_series_catalog()[, c("id", "title", "transform")])
+```
+
+## 1. Recession probability from the yield curve
+
+```{r}
+m <- ek_recession_model(d, predictors = "T10Y3M", horizon = 12)
+m
+p <- predict(m)
+plot(p$target_date, p$probability, type = "l", col = "firebrick",
+     xlab = "", ylab = "Probability", main = "Recession probability, 12 months ahead")
+```
+
+In-sample fit flatters any model. The backtest re-estimates the model at every
+forecast origin, using only outcomes that were known at that time. Here it
+also allows a 6-month lag before NBER recession dates are announced.
+
+```{r}
+bt <- ek_backtest_recession(d, horizon = 12, label_lag = 6)
+attr(bt, "metrics")
+```
+
+Adding predictors is a one-line change, for example the term spread plus
+financial conditions:
+
+```{r}
+m2 <- ek_recession_model(d, predictors = c("T10Y3M", "NFCI"), horizon = 12)
+rbind(spread = m$metrics, spread_nfci = m2$metrics)
+```
+
+## 2. Real-time labour market signal: the Sahm rule
+
+```{r}
+d$sahm <- ek_sahm_rule(d$UNRATE)
+table(triggered = d$sahm >= 0.5, recession = d$USREC == 1)
+```
+
+## 3. Regimes
+
+The growth/inflation quadrant (the "investment clock") is a simple,
+transparent regime map for tactical allocation:
+
+```{r}
+d$regime <- ek_growth_inflation_regime(
+  ek_transform(d$INDPRO, "yoy"),
+  ek_transform(d$CPIAUCSL, "yoy")
+)
+prop.table(table(d$regime))
+```
+
+A Markov-switching model gives probabilistic regimes. Use the **filtered**
+probabilities for real-time decisions, because smoothed probabilities use
+future data.
+
+```{r}
+g <- ek_transform(d$INDPRO, "log_diff")[-1]
+ms <- ek_markov_switching(g)
+ms
+plot(d$date[-1], ms$filtered[, "state1"], type = "l", xlab = "",
+     ylab = "Probability", main = "Filtered probability of the contraction regime")
+```
+
+## 4. Output gap
+
+```{r}
+gap <- ek_output_gap(d$INDPRO, method = "hamilton")
+plot(d$date, gap$cycle, type = "l", xlab = "", ylab = "% of trend",
+     main = "Industrial production gap (Hamilton filter)")
+abline(h = 0, lty = 2)
+```
+
+## 5. Reporting
+
+`ek_render_macro_dashboard("macro-dashboard.html")` renders all of the above
+into a self-contained HTML dashboard. The Quarto CLI is required.

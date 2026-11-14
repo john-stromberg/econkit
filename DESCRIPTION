@@ -1,0 +1,38 @@
+Package: econkit
+Title: Economic Analysis Tools for Asset Management and Banking
+Version: 0.1.0
+Authors@R: 
+    person("John", "Stromberg", , "john.stromberg92@gmail.com", role = c("aut", "cre"))
+Description: Practical, reproducible macroeconomic analysis for asset
+    management and banking. Provides a unified data layer (bundled sample
+    data and FRED), frequency alignment and transformations, yield-curve
+    recession probability models with leakage-free backtests, the Sahm rule,
+    output gap estimation (Hamilton regression filter and Hodrick-Prescott),
+    growth/inflation regime classification, Markov-switching regime models,
+    and parameterised Quarto reporting.
+License: MIT + file LICENSE
+URL: https://github.com/john-stromberg/econkit
+BugReports: https://github.com/john-stromberg/econkit/issues
+Depends: 
+    R (>= 4.1.0)
+Imports: 
+    stats,
+    tools,
+    yaml
+Suggests: 
+    covr,
+    fredr,
+    ggplot2,
+    gt,
+    knitr,
+    quarto,
+    rmarkdown,
+    targets,
+    testthat (>= 3.0.0)
+VignetteBuilder: 
+    knitr
+Config/testthat/edition: 3
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.1.1

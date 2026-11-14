@@ -1,0 +1,36 @@
+# Renders the macro dashboard monthly (and on demand) and uploads it as an
+# artifact. Uses FRED data when the FRED_API_KEY repository secret is set,
+# otherwise the bundled synthetic sample data.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 12 2 * *'
+
+name: macro-dashboard
+
+permissions: read-all
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: quarto-dev/quarto-actions/setup@v2
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::quarto, any::ggplot2, any::gt, any::fredr, local::.
+      - name: Render dashboard
+        run: |
+          src <- if (nzchar(Sys.getenv("FRED_API_KEY"))) "fred" else "sample"
+          econkit::ek_render_macro_dashboard("output/macro-dashboard.html", source = src)
+        shell: Rscript {0}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macro-dashboard
+          path: output/macro-dashboard.html

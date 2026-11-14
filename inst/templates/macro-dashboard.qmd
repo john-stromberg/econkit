@@ -1,0 +1,215 @@
+---
+title: "Macro Dashboard"
+subtitle: "econkit: recession risk, regimes and financial conditions"
+date: today
+format:
+  html:
+    embed-resources: true
+    toc: true
+    theme: cosmo
+    fig-width: 9
+    fig-height: 3.6
+execute:
+  echo: false
+  warning: false
+  message: false
+params:
+  source: "sample"
+  start: "1990-01-01"
+  horizon: 12
+---
+
+```{r setup}
+library(econkit)
+library(ggplot2)
+
+horizon <- as.integer(params$horizon)
+start <- as.Date(params$start)
+raw <- ek_get_series(source = params$source)
+
+d <- raw
+d$ip_yoy <- ek_transform(d$INDPRO, "yoy")
+d$cpi_yoy <- ek_transform(d$CPIAUCSL, "yoy")
+d$core_yoy <- ek_transform(d$PCEPILFE, "yoy")
+d$payrolls_3m <- ek_transform(d$PAYEMS, "diff", n = 3) / 3
+d$sahm <- ek_sahm_rule(d$UNRATE)
+d$regime <- ek_growth_inflation_regime(d$ip_yoy, d$cpi_yoy)
+
+model <- ek_recession_model(d, horizon = horizon)
+pred <- predict(model, newdata = d)
+bt <- ek_backtest_recession(d, horizon = horizon, label_lag = 6)
+
+ip <- d$INDPRO[!is.na(d$INDPRO)]
+gap <- ek_output_gap(ip)
+d$output_gap <- NA_real_
+d$output_gap[!is.na(d$INDPRO)] <- gap$cycle
+
+growth <- ek_transform(ip, "log_diff")[-1]
+msm <- ek_markov_switching(growth)
+d$p_contraction <- NA_real_
+d$p_contraction[which(!is.na(d$INDPRO))[-1]] <- msm$filtered[, 1]
+current <- lapply(d, function(v) v[max(c(1L, which(!is.na(v))))])
+
+plot_data <- d[d$date >= start, ]
+rec_spans <- local({
+  r <- plot_data$USREC
+  r[is.na(r)] <- 0
+  starts <- plot_data$date[which(diff(c(0, r)) == 1)]
+  ends <- plot_data$date[which(diff(c(r, 0)) == -1)]
+  data.frame(start = starts, end = ends)
+})
+shade <- function() {
+  geom_rect(data = rec_spans, inherit.aes = FALSE,
+            aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf),
+            fill = "grey80", alpha = 0.6)
+}
+theme_set(theme_minimal(base_size = 11))
+```
+
+```{r banner, results = "asis"}
+if (params$source == "sample") {
+  cat("::: {.callout-warning}\n**Synthetic sample data.** This dashboard was",
+      "rendered from the bundled simulated dataset for demonstration. Set a",
+      "`FRED_API_KEY` and render with `source = \"fred\"` for real data.\n:::\n")
+}
+```
+
+## Summary as of `r format(max(d$date), "%B %Y")`
+
+Latest available value of each indicator.
+
+```{r summary}
+latest_prob <- tail(pred$probability[!is.na(pred$probability)], 1)
+tbl <- data.frame(
+  Indicator = c(
+    sprintf("Recession probability (%d months ahead)", horizon),
+    "10Y-3M term spread (pp)", "Sahm rule indicator (pp)", "Unemployment rate (%)",
+    "Payrolls, 3-month average change (k)", "Industrial production YoY (%)",
+    "CPI inflation YoY (%)", "Core PCE inflation YoY (%)", "Output gap (IP, % of trend)",
+    "Financial conditions (NFCI)", "Growth/inflation regime",
+    "Markov contraction probability (filtered)"
+  ),
+  Value = c(
+    sprintf("%.0f%%", 100 * latest_prob), sprintf("%.2f", current$T10Y3M),
+    sprintf("%.2f", current$sahm), sprintf("%.1f", current$UNRATE),
+    sprintf("%.0f", current$payrolls_3m), sprintf("%.1f", current$ip_yoy),
+    sprintf("%.1f", current$cpi_yoy), sprintf("%.1f", current$core_yoy),
+    sprintf("%.1f", current$output_gap), sprintf("%.2f", current$NFCI),
+    as.character(current$regime), sprintf("%.0f%%", 100 * current$p_contraction)
+  ),
+  Signal = c(
+    ifelse(latest_prob > 0.3, "Elevated", "Low"),
+    ifelse(current$T10Y3M < 0, "Inverted", "Positive"),
+    ifelse(current$sahm >= 0.5, "Triggered", "Not triggered"),
+    "", "", "", "", "",
+    ifelse(current$output_gap > 0, "Above trend", "Below trend"),
+    ifelse(current$NFCI > 0, "Tighter than average", "Looser than average"),
+    "", ifelse(current$p_contraction > 0.5, "Contraction", "Expansion")
+  )
+)
+gt::gt(tbl) |> gt::tab_options(table.width = gt::pct(100))
+```
+
+## Recession probability
+
+Probit model of a recession `r horizon` months ahead on the 10Y-3M term
+spread, estimated from `r format(model$train_period[1], "%Y")` to
+`r format(model$train_period[2], "%Y")`. Shaded areas are recessions.
+
+```{r recession-prob}
+pp <- pred[pred$date >= start, ]
+ggplot(pp, aes(target_date, probability)) +
+  shade() +
+  geom_line(colour = "#b2182b", linewidth = 0.7) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(x = "Target date", y = NULL,
+       title = sprintf("Probability of recession %d months ahead", horizon))
+```
+
+**Out-of-sample validation:** expanding-window backtest with a 6-month label
+lag for NBER announcements.
+
+```{r backtest}
+m <- attr(bt, "metrics")
+gt::gt(data.frame(
+  Forecasts = m$n, `Base rate` = sprintf("%.1f%%", 100 * m$base_rate),
+  AUC = sprintf("%.3f", m$auc), Brier = sprintf("%.4f", m$brier),
+  `In-sample AUC` = sprintf("%.3f", model$metrics$auc), check.names = FALSE
+))
+```
+
+## Yield curve and policy rate
+
+```{r curve}
+long <- rbind(
+  data.frame(date = plot_data$date, series = "10Y-3M spread", value = plot_data$T10Y3M),
+  data.frame(date = plot_data$date, series = "Fed funds", value = plot_data$FEDFUNDS),
+  data.frame(date = plot_data$date, series = "10Y yield", value = plot_data$DGS10)
+)
+ggplot(long, aes(date, value, colour = series)) +
+  shade() +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_line(linewidth = 0.6) +
+  labs(x = NULL, y = "Percent", colour = NULL) +
+  theme(legend.position = "top")
+```
+
+## Labour market: Sahm rule
+
+```{r sahm}
+ggplot(plot_data, aes(date, sahm)) +
+  shade() +
+  geom_hline(yintercept = 0.5, linetype = 2, colour = "#b2182b") +
+  geom_line(colour = "#2166ac", linewidth = 0.6) +
+  labs(x = NULL, y = "pp", title = "Sahm rule indicator (trigger at 0.5)")
+```
+
+## Regimes
+
+```{r regime}
+rg <- plot_data[!is.na(plot_data$regime), ]
+ggplot(rg, aes(date, 1, fill = regime)) +
+  geom_tile(height = 1) +
+  scale_fill_manual(values = c(Reflation = "#4393c3", Recovery = "#5aae61",
+                               Overheat = "#f4a582", Stagflation = "#b2182b")) +
+  labs(x = NULL, y = NULL, fill = NULL,
+       title = "Growth/inflation regime (3-month momentum of IP and CPI YoY)") +
+  theme(axis.text.y = element_blank(), panel.grid = element_blank(),
+        legend.position = "top")
+```
+
+```{r regime-table}
+tab <- table(d$regime)
+gt::gt(data.frame(Regime = names(tab), `Share of months` =
+                    sprintf("%.0f%%", 100 * as.numeric(tab) / sum(tab)), check.names = FALSE))
+```
+
+```{r msm}
+ggplot(plot_data, aes(date, p_contraction)) +
+  shade() +
+  geom_area(fill = "#b2182b", alpha = 0.5) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = NULL, y = NULL,
+       title = "Markov-switching probability of contraction regime (filtered, IP growth)")
+```
+
+## Output gap and financial conditions
+
+```{r gap}
+long <- rbind(
+  data.frame(date = plot_data$date, series = "Output gap (IP, Hamilton filter, %)",
+             value = plot_data$output_gap),
+  data.frame(date = plot_data$date, series = "NFCI (positive = tight)",
+             value = plot_data$NFCI)
+)
+ggplot(long, aes(date, value)) +
+  shade() +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_line(colour = "#2166ac", linewidth = 0.6) +
+  facet_wrap(~series, ncol = 1, scales = "free_y") +
+  labs(x = NULL, y = NULL)
+```
+
+---
+*Generated with econkit `r as.character(utils::packageVersion("econkit"))`
+from `r params$source` data.*

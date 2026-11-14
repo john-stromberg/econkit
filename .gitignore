@@ -1,0 +1,17 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.Renviron
+*.Rcheck/
+econkit_*.tar.gz
+_targets/
+pipelines/**/output/
+reports/*.html
+reports/*_files/
+inst/doc
+doc
+Meta
+.quarto/
+renv/library/
+renv/staging/

@@ -1,0 +1,70 @@
+# Series catalog for the econkit data layer.
+# id: FRED series id (also the column name returned by ek_get_series()).
+# transform: default transformation suggested for analysis (see ek_transform()).
+series:
+  - id: USREC
+    title: NBER-based recession indicator
+    units: "1 = recession, 0 = expansion"
+    frequency: monthly
+    category: cycle
+    transform: level
+  - id: T10Y3M
+    title: 10-year Treasury minus 3-month Treasury bill
+    units: percentage points
+    frequency: daily
+    category: rates
+    transform: level
+  - id: DGS10
+    title: 10-year Treasury constant maturity yield
+    units: percent
+    frequency: daily
+    category: rates
+    transform: level
+  - id: TB3MS
+    title: 3-month Treasury bill secondary market rate
+    units: percent
+    frequency: monthly
+    category: rates
+    transform: level
+  - id: FEDFUNDS
+    title: Effective federal funds rate
+    units: percent
+    frequency: monthly
+    category: rates
+    transform: level
+  - id: UNRATE
+    title: Unemployment rate
+    units: percent
+    frequency: monthly
+    category: labor
+    transform: level
+  - id: PAYEMS
+    title: Total nonfarm payrolls
+    units: thousands of persons
+    frequency: monthly
+    category: labor
+    transform: yoy
+  - id: INDPRO
+    title: Industrial production index
+    units: index
+    frequency: monthly
+    category: activity
+    transform: yoy
+  - id: CPIAUCSL
+    title: Consumer price index, all urban consumers
+    units: index
+    frequency: monthly
+    category: prices
+    transform: yoy
+  - id: PCEPILFE
+    title: Core PCE price index
+    units: index
+    frequency: monthly
+    category: prices
+    transform: yoy
+  - id: NFCI
+    title: Chicago Fed National Financial Conditions Index
+    units: index (positive = tighter than average)
+    frequency: weekly
+    category: financial
+    transform: level

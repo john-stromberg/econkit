@@ -1,0 +1,14 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^LICENSE\.md$
+^README\.md$
+^data-raw$
+^pipelines$
+^reports$
+^app$
+^renv$
+^renv\.lock$
+^\.github$
+^\.lintr$
+^_targets$
+^\.quarto$
