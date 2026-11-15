@@ -71,9 +71,9 @@ ek_satellite_project(sat, bvar_lib)                # satellite variable along pa
 ek_render_macro_dashboard("macro-dashboard.html")  # Quarto HTML report
 ```
 
-### Read-only API
+### API
 
-The optional `{plumber}` API serves the bundled sample workflows. Install
+The optional `{plumber}` API serves the econkit workflows. Install
 the current checkout and `{plumber}`, then start it from the package root:
 
 ```r
@@ -83,13 +83,35 @@ plumber::pr("inst/plumber/api.R") |>
   plumber::pr_run(host = "127.0.0.1", port = 8000)
 ```
 
-Available endpoints are `/health`, `/v1/catalog`, `/v1/series`, `/v1/signals`,
+Available endpoints are `/health`, `/v1/catalog`, `/v1/sources`, `/v1/series`,
+`/v1/series/export`, `/v1/calendar`, `/v1/nowcast`, `/v1/signals`,
 `/v1/positioning/playbook`,
 `/v1/saa/assumptions`, `/v1/scenarios`, and compute-only `POST` routes
-`/v1/saa/portfolio` and `/v1/saa/stress`, each with a JSON `weights` object.
+`/v1/saa/portfolio` and `/v1/saa/stress`, each with a JSON `weights` object,
+plus `/v1/forecast` and `/v1/scenarios/build`.
 `GET /v1/series?ids=UNRATE,PAYEMS&frequency=quarter&vintage=2020-06-30`
 returns `{meta, data}`: provenance metadata and long-format observations.
+`GET /v1/series/export` takes the same parameters plus `format=parquet|csv`
+and returns the file, with provenance in `X-Econkit-*` response headers
+(`Data-MD5`, `Source`, `Synthetic`, `Vintage`, `Vintage-Method`), for BI tools
+that read Parquet or CSV over HTTP. `GET /v1/calendar?from=&to=&ids=` lists
+estimated releases, and `GET /v1/nowcast?vintage=` runs the sample nowcast.
 `source=fred` works only when the server has `FRED_API_KEY` set.
+
+`POST /v1/forecast` fits a BVAR and returns forecast bands; `POST
+/v1/scenarios/build` turns named condition sets into a macro scenario library.
+Both accept `vars`, `source`, `vintage`, `p`, `lambda`, `h` (up to 60),
+`draws` (up to 2000), `level` and `seed` (default 1, so identical requests
+return identical results); conditions are arrays by variable, with `null`
+leaving a period free:
+
+```json
+{
+  "vars": ["FEDFUNDS", "UNRATE", "INDPRO"], "h": 6, "version": "rates-v1",
+  "scenarios": {"base": {}, "hike": {"FEDFUNDS": [6, 6, 6, null, null, null]}}
+}
+```
+
 `GET /v1/banking/credit-stress` runs a synthetic sample portfolio, while
 `POST /v1/banking/credit-stress` accepts a JSON `portfolio` array and applies
 the same synthetic scenarios without persisting the portfolio:
@@ -110,12 +132,17 @@ accounting stages. Inputs and sensitivities are illustrative; results are not
 CECL/IFRS 9 allowances, regulatory stress results or calibrated forecasts.
 Amounts must use common units; no currency conversion is performed. Output
 as-of dates and vintages describe the scenarios, not the supplied portfolio.
-Only send non-sensitive demonstration portfolios to the unauthenticated API.
+Only send non-sensitive demonstration portfolios unless the API runs behind
+authentication and TLS.
 The POST routes do not persist data or recommend allocations. Scenario paths
 and asset shocks are synthetic illustrations, not forecasts or calibrated
-market estimates. Sample endpoints identify synthetic data. This
-prototype is stateless and has no authentication; keep it on localhost or
-behind an appropriately secured gateway. PostgreSQL is optional for shared
+market estimates. Sample endpoints identify synthetic data.
+
+Set `ECONKIT_API_KEYS` (comma-separated) to require an `X-API-Key` header on
+every route except `/health` and the API docs; `/health` reports whether keys
+are enforced. Keys are read on each request, so they can be rotated by
+updating the environment. The API serves plain HTTP: terminate TLS at a
+gateway or reverse proxy and keep keys out of source control. PostgreSQL is optional for shared
 signal storage. Without database settings, `/v1/signals` uses sample data. If
 any required PostgreSQL setting is present, the API connects to the configured
 store and reports connection or schema errors rather than silently falling
@@ -194,7 +221,7 @@ Exports are written atomically, in long format, and their provenance includes a
 | Strategic asset allocation | `ek_saa_assumptions()` (historical return/risk/covariance inputs), `ek_saa_portfolio()` (policy-mix summary; no optimizer) |
 | Scenario analysis | `ek_scenario_library()` (versioned macro paths, with optional asset shocks), `ek_scenario_from_forecast()` (libraries from BVAR forecasts), `ek_satellite_fit()` and `ek_satellite_project()` (macro-to-business-variable models), `ek_validate_scenario_library()`, `ek_saa_scenario_stress()` |
 | Banking credit stress | `ek_credit_scenario_stress()` (scenario-specific segment default probabilities and expected credit losses) |
-| API | Read-only/compute-only Plumber endpoints for sample or database-backed signals, positioning playbook and SAA |
+| API | Plumber endpoints for series, Parquet/CSV export, sources, release calendar, nowcast, BVAR forecasts and scenario building, signals, positioning, SAA and credit stress, with optional API keys |
 | PM signal service | `ek_build_signals()` (delayed labels), local RDS storage via `ek_store_signals()` / `ek_read_signals()`, or shared DBI/PostgreSQL storage via `ek_init_signal_store_db()`, `ek_store_signals_db()` and `ek_read_signals_db()` |
 | Reporting | `ek_render_macro_dashboard()` and the template in `inst/templates/macro-dashboard.qmd` |
 | Pipelines | `pipelines/macro/_targets.R` (`targets::tar_make()`) |
@@ -227,7 +254,8 @@ CI (GitHub Actions) runs `R CMD check` on Ubuntu and Windows, lintr, and a cover
 | 3. Scenario analysis | Versioned macro paths, SAA stress and illustrative banking credit stress with API routes; follow with CECL/stress integration | Sample-backed initial slice (banking work paused for core enhancements) |
 | Core A. Data foundation | Series registry, point-in-time vintages, provenance, source adapters, Parquet/CSV export, release calendar | Done |
 | Core B. Analysis core | Indicator transforms, Taylor rule, surprise index, factor nowcast, BVAR with conditional forecasts, scenario builder and satellite models | Done |
-| Core C–D. Service contract, governance | Export/calendar/nowcast/forecast/scenario API routes and API keys; model registry, run lineage and monitoring | In progress |
+| Core C. Service contract | Export, sources, calendar, nowcast, forecast and scenario-build API routes; API keys | Done |
+| Core D. Governance | Model registry, run lineage and monitoring | In progress |
 | 4. Asset management portfolio analytics | Factor exposures, VaR/ES with backtests, scenario P&L | Planned |
 | 5. Commercial banking portfolio analytics | Concentration, credit portfolio model and economic capital, RWA, migration and vintages, RAROC/FTP pricing, NII/EVE, CRE stress | Planned |
 | 6. Forecasting and nowcasting | BVAR, conditional forecasts and factor nowcast delivered in Core B; next: vintage-based forecast evaluation | Initial slice done |
