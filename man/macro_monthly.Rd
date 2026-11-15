@@ -5,12 +5,14 @@
 \alias{macro_monthly}
 \title{Synthetic monthly US-style macro dataset}
 \format{
-A data frame with 672 rows (January 1970 to December 2025) and 12 columns:
+A data frame with 672 rows (January 1970 to December 2025) and 16 columns:
 \describe{
 \item{date}{First day of the month.}
 \item{USREC}{Recession indicator (1 = recession).}
 \item{T10Y3M}{10-year minus 3-month Treasury spread, percentage points.}
 \item{DGS10}{10-year Treasury yield, percent.}
+\item{DGS3MO, DGS2, DGS5, DGS30}{3-month, 2-year, 5-year and 30-year
+Treasury constant maturity yields, percent; fitted synthetic curve points.}
 \item{TB3MS}{3-month Treasury bill rate, percent.}
 \item{FEDFUNDS}{Effective federal funds rate, percent.}
 \item{UNRATE}{Unemployment rate, percent.}

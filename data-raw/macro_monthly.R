@@ -79,6 +79,25 @@ pcepilfe <- 25 * cumprod(1 + core / 1200)
 
 nfci <- -0.4 + 0.9 * rec + 0.3 * ahead + ar1(n, 0.85, 0.12)
 
+# Synthetic intermediate Treasury maturities. The endpoints are tied to the
+# sample 3-month and 10-year rates; a persistent curvature factor fills the
+# remaining points for curve-fitting demonstrations.
+lambda <- 0.6
+tenors <- c(0.25, 2, 5, 10, 30)
+decay <- lambda * tenors
+slope_load <- -expm1(-decay) / decay
+curvature_load <- slope_load - exp(-decay)
+curve_design <- cbind(1, slope_load[c(1, 4)])
+curvature <- 0.35 + ar1(n, 0.7, 0.12)
+factors <- t(vapply(seq_len(n), function(i) {
+  endpoint_factors <- solve(
+    curve_design, c(tb3ms[i], dgs10[i] - curvature_load[4] * curvature[i])
+  )
+  c(level = endpoint_factors[1], slope = endpoint_factors[2], curvature = curvature[i])
+}, numeric(3)))
+curve_loadings <- cbind(1, slope_load, curvature_load)
+curve_yields <- factors %*% t(curve_loadings)
+
 r2 <- function(x, d = 2) round(x, d)
 
 macro_monthly <- data.frame(
@@ -86,6 +105,10 @@ macro_monthly <- data.frame(
   USREC = rec,
   T10Y3M = r2(t10y3m),
   DGS10 = r2(dgs10),
+  DGS3MO = r2(curve_yields[, 1]),
+  DGS2 = r2(curve_yields[, 2]),
+  DGS5 = r2(curve_yields[, 3]),
+  DGS30 = r2(curve_yields[, 5]),
   TB3MS = r2(tb3ms),
   FEDFUNDS = r2(fedfunds),
   UNRATE = r2(unrate, 1),

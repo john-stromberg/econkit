@@ -115,6 +115,20 @@ models:
       - metric: coverage
         lower: 0.6
         upper: 0.95
+  - id: yield_curve_nelson_siegel
+    name: Fixed-decay Nelson-Siegel Treasury curve
+    function: ek_yield_curve_fit
+    version: nelson-siegel-v1
+    category: rates
+    risk_tier: medium
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Descriptive yield-curve level, slope and curvature; not valuation discount rates.
+    last_review: ""
+    monitoring:
+      - metric: rmse
+        upper: 1
+        drift_z: 3
   - id: satellite_ols
     name: Macro satellite regression
     function: ek_satellite_fit

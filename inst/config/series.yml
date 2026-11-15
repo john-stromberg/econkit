@@ -53,6 +53,45 @@ series:
     release_lag_days: 1
     license: public (Federal Reserve Board)
     in_sample: true
+  - id: DGS3MO
+    title: 3-month Treasury constant maturity yield
+    units: percent
+    frequency: daily
+    category: rates
+    transform: level
+    source: fred
+    source_id: DGS3MO
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: public (Federal Reserve Board)
+    in_sample: true
+  - id: DGS5
+    title: 5-year Treasury constant maturity yield
+    units: percent
+    frequency: daily
+    category: rates
+    transform: level
+    source: fred
+    source_id: DGS5
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: public (Federal Reserve Board)
+    in_sample: true
+  - id: DGS30
+    title: 30-year Treasury constant maturity yield
+    units: percent
+    frequency: daily
+    category: rates
+    transform: level
+    source: fred
+    source_id: DGS30
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: public (Federal Reserve Board)
+    in_sample: true
   - id: TB3MS
     title: 3-month Treasury bill secondary market rate
     units: percent
@@ -169,7 +208,7 @@ series:
     seasonal_adjustment: NSA
     release_lag_days: 1
     license: public (Federal Reserve Board)
-    in_sample: false
+    in_sample: true
   - id: MORTGAGE30US
     title: 30-year fixed-rate mortgage average
     units: percent

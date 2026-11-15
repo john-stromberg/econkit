@@ -327,6 +327,45 @@ function() {
   )
 }
 
+#* Descriptive Treasury yield-curve factors and Nelson-Siegel fit
+#* @param source Data source (`sample` or `fred`).
+#* @param start Optional first observation date (YYYY-MM-DD).
+#* @param end Optional last observation date (YYYY-MM-DD).
+#* @param vintage Optional ALFRED as-of date (YYYY-MM-DD).
+#* @param lambda Positive Nelson-Siegel decay parameter.
+#* @serializer unboxedJSON list(na = "null")
+#* @get /v1/rates/curve
+function(req, res, source = "sample", start = "", end = "", vintage = "",
+         lambda = "0.6") {
+  tryCatch({
+    source <- ek_api_string(source, "source", "sample")
+    start <- if (nzchar(start)) ek_api_date(start, "start") else NULL
+    end <- if (nzchar(end)) ek_api_date(end, "end") else NULL
+    vintage <- if (nzchar(vintage)) ek_api_date(vintage, "vintage") else NULL
+    lambda <- ek_api_number(lambda, "lambda", 0.01, 5, 0.6)
+    series <- ek_get_series(
+      c("DGS3MO", "DGS2", "DGS5", "DGS10", "DGS30"),
+      source = source, start = start, end = end, vintage = vintage
+    )
+    curve <- ek_yield_curve_fit(series, lambda = lambda)
+    run_id <- ek_api_record(
+      "yield_curve_nelson_siegel", series, curve$factors,
+      list(lambda = lambda, tenors = curve$tenors,
+           vintage = if (is.null(vintage)) NULL else format(vintage)),
+      req, "GET /v1/rates/curve",
+      metrics = c(rmse = mean(curve$factors$rmse), n_obs = nrow(curve$factors))
+    )
+    list(
+      meta = list(model = "ek_yield_curve_fit", model_version = curve$model_version,
+                  source = curve$source, synthetic = curve$synthetic,
+                  data_vintage = curve$data_vintage, as_of = max(curve$factors$date),
+                  lambda = curve$lambda, run_id = run_id),
+      factors = curve$factors,
+      fitted = curve$fitted
+    )
+  }, error = function(error) ek_api_error(res, error))
+}
+
 #* Illustrative credit stress for a sample banking portfolio
 #* @get /v1/banking/credit-stress
 function() {
