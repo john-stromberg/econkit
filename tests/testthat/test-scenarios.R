@@ -69,3 +69,61 @@ test_that("scenario validation rejects broken monthly paths and shock keys", {
     "same asset classes"
   )
 })
+
+test_that("macro-only libraries accept any numeric macro columns", {
+  scenarios <- ek_scenario_library()
+  paths <- scenarios$paths[c("scenario_id", "version", "as_of", "data_vintage",
+                             "step", "date", "UNRATE")]
+  paths$BAA10Y <- 2 + paths$UNRATE / 10
+  macro_only <- ek_scenario_library(paths)
+
+  expect_equal(nrow(macro_only$asset_returns), 0L)
+  expect_false(macro_only$synthetic)
+  expect_error(ek_saa_scenario_stress(macro_only, c(global_equity = 1)),
+               "asset-return shocks")
+  expect_equal(nrow(ek_credit_scenario_stress(macro_only)$summary), 3L)
+
+  no_unrate <- ek_scenario_library(paths[names(paths) != "UNRATE"])
+  expect_error(ek_credit_scenario_stress(no_unrate), "UNRATE")
+
+  expect_error(ek_scenario_library(paths[1:6]), "missing required columns")
+  bad <- paths
+  bad$UNRATE[1] <- -1
+  expect_error(ek_scenario_library(bad), "invalid numeric values")
+  bad <- paths
+  bad$BAA10Y[2] <- NA
+  expect_error(ek_scenario_library(bad), "invalid numeric values")
+  expect_error(ek_scenario_library(asset_returns = scenarios$asset_returns),
+               "requires `paths`")
+})
+
+test_that("BVAR forecasts become a macro scenario library", {
+  fit <- ek_bvar(p = 2)
+  base <- ek_bvar_forecast(fit, h = 6, draws = 20, seed = 1)
+  hike <- ek_bvar_forecast(fit, h = 6, draws = 20, seed = 1,
+                           conditions = list(FEDFUNDS = rep(8, 6)))
+  lib <- ek_scenario_from_forecast(list(base = base, hike = hike), version = "t1")
+
+  expect_s3_class(lib, "ek_scenario_library")
+  expect_true(lib$synthetic)
+  expect_equal(nrow(lib$paths), 12L)
+  expect_true(all(c(fit$vars, "scenario_id", "step") %in% names(lib$paths)))
+  expect_true(all(lib$paths$as_of == fit$last_date))
+  hike_path <- lib$paths[lib$paths$scenario_id == "hike", ]
+  expect_equal(hike_path$FEDFUNDS, rep(8, 6), tolerance = 1e-8)
+  expect_equal(hike_path$UNRATE,
+               hike$summary$central[hike$summary$variable == "UNRATE"])
+  upper <- ek_scenario_from_forecast(list(base = base), path = "upper")
+  expect_equal(upper$paths$UNRATE, base$summary$upper[base$summary$variable == "UNRATE"])
+  expect_equal(nrow(ek_credit_scenario_stress(lib)$summary), 2L)
+
+  short <- ek_bvar_forecast(fit, h = 3, draws = 5, seed = 1)
+  expect_error(ek_scenario_from_forecast(list(base = base, short = short)),
+               "end date and horizon")
+  expect_error(ek_scenario_from_forecast(list(base)), "uniquely named")
+  quarterly <- ek_bvar(ek_get_series(c("UNRATE", "FEDFUNDS"), frequency = "quarter"), p = 1)
+  expect_error(
+    ek_scenario_from_forecast(list(base = ek_bvar_forecast(quarterly, h = 2, draws = 5))),
+    "monthly"
+  )
+})

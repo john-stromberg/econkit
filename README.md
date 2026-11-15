@@ -55,6 +55,19 @@ scenarios <- ek_scenario_library()                 # illustrative 12-month paths
 ek_saa_scenario_stress(scenarios, b)               # shocked policy returns
 ek_credit_scenario_stress(scenarios)$summary       # sample banking credit stress
 
+ek_apply_transforms(ek_get_series(c("PAYEMS", "UNRATE")))  # registry transforms
+ek_taylor_rule()                                   # policy-rate benchmark
+ek_nowcast()                                       # factor-bridge nowcast, ragged edge
+fit <- ek_bvar(p = 2)                              # Minnesota-prior BVAR
+base <- ek_bvar_forecast(fit, h = 12, seed = 1)
+hike <- ek_bvar_forecast(fit, h = 12, seed = 1,
+                         conditions = list(FEDFUNDS = rep(6, 12)))
+bvar_lib <- ek_scenario_from_forecast(list(base = base, hike = hike))
+ek_credit_scenario_stress(bvar_lib)$summary        # credit stress on model scenarios
+sat <- ek_satellite_fit(ek_get_series(c("DGS10", "UNRATE", "NFCI")),
+                        "DGS10", c("UNRATE", "NFCI"))
+ek_satellite_project(sat, bvar_lib)                # satellite variable along paths
+
 ek_render_macro_dashboard("macro-dashboard.html")  # Quarto HTML report
 ```
 
@@ -175,9 +188,11 @@ Exports are written atomically, in long format, and their provenance includes a
 | Data layer | `ek_get_series()`, `ek_series_catalog()`, `ek_provenance()`, `ek_series_long()`, `ek_export_series()`, `ek_release_calendar()`, `ek_register_source()`, `ek_sources()`, `ek_csv_fetcher()`, `ek_align_frequency()`, `ek_floor_date()`, `ek_transform()`, `ek_lag()`, `ek_cache_dir()` |
 | Recession risk | `ek_recession_model()`, `predict()`, `ek_backtest_recession()`, `ek_classification_metrics()`, `ek_sahm_rule()` |
 | Cycle and regimes | `ek_output_gap()` (Hamilton or HP), `ek_growth_inflation_regime()`, `ek_markov_switching()` |
+| Indicators | `ek_apply_transforms()` (registry transforms), `ek_taylor_rule()` (policy-rate benchmark with inertia and lower bound), `ek_surprise_index()` (standardized, decaying data-surprise index) |
+| Nowcasting and forecasting | `ek_nowcast()` (principal-component factor bridge for the current quarter, ragged edge), `ek_bvar()` and `ek_bvar_forecast()` (Minnesota-prior BVAR with bands and conditional scenarios) |
 | Multi-asset positioning | `ek_positioning_playbook()` (signals at month t, return observations at t+1), `ek_positioning_tilts()` (neutral, bounded heuristic), `ek_positioning_gap()` |
 | Strategic asset allocation | `ek_saa_assumptions()` (historical return/risk/covariance inputs), `ek_saa_portfolio()` (policy-mix summary; no optimizer) |
-| Scenario analysis | `ek_scenario_library()` (versioned macro paths and asset shocks), `ek_validate_scenario_library()`, `ek_saa_scenario_stress()` |
+| Scenario analysis | `ek_scenario_library()` (versioned macro paths, with optional asset shocks), `ek_scenario_from_forecast()` (libraries from BVAR forecasts), `ek_satellite_fit()` and `ek_satellite_project()` (macro-to-business-variable models), `ek_validate_scenario_library()`, `ek_saa_scenario_stress()` |
 | Banking credit stress | `ek_credit_scenario_stress()` (scenario-specific segment default probabilities and expected credit losses) |
 | API | Read-only/compute-only Plumber endpoints for sample or database-backed signals, positioning playbook and SAA |
 | PM signal service | `ek_build_signals()` (delayed labels), local RDS storage via `ek_store_signals()` / `ek_read_signals()`, or shared DBI/PostgreSQL storage via `ek_init_signal_store_db()`, `ek_store_signals_db()` and `ek_read_signals_db()` |
@@ -188,7 +203,7 @@ The positioning playbook is descriptive, not a return forecast. Tilt scores are 
 
 Both signal stores preserve the immutable `(as_of, signal, model_version)` key and as-of reads. The RDS implementation remains a single-writer local option; PostgreSQL is the shared-service option. `data_vintage` records the latest observation date. Signals are built from current data; `ek_get_series(vintage = )` now provides ALFRED vintages for FRED, but signal backtests do not yet rebuild each snapshot from its vintage. The `override`, `override_reason` and `user` fields are reserved for downstream approval workflows.
 
-Model cards (purpose, assumptions, limitations and monitoring) are in the help pages for each model, for example `?ek_recession_model`, `?ek_markov_switching` and `?ek_positioning_tilts`.
+Model cards (purpose, assumptions, limitations and monitoring) are in the help pages for each model, for example `?ek_recession_model`, `?ek_markov_switching`, `?ek_positioning_tilts`, `?ek_nowcast`, `?ek_bvar` and `?ek_satellite_fit`. BVAR conditional forecasts use reduced-form shocks, so they are consistent scenarios rather than identified policy experiments, and the BVAR does not impose a lower bound on rates unless the policy rate is conditioned. Scenario libraries built from forecasts are macro-only (no asset shocks), so they feed credit stress and satellites but not SAA stress.
 
 ## Development
 
@@ -211,10 +226,11 @@ CI (GitHub Actions) runs `R CMD check` on Ubuntu and Windows, lintr, and a cover
 | 2. Service and SAA | Plumber API, sample-backed SAA inputs and optional PostgreSQL signal store | Initial local implementation |
 | 3. Scenario analysis | Versioned macro paths, SAA stress and illustrative banking credit stress with API routes; follow with CECL/stress integration | Sample-backed initial slice (banking work paused for core enhancements) |
 | Core A. Data foundation | Series registry, point-in-time vintages, provenance, source adapters, Parquet/CSV export, release calendar | Done |
-| Core B–D. Analysis core, service contract, governance | Indicators, nowcast, BVAR and scenario builder; export/calendar/forecast API routes and API keys; model registry, run lineage and monitoring | In progress |
+| Core B. Analysis core | Indicator transforms, Taylor rule, surprise index, factor nowcast, BVAR with conditional forecasts, scenario builder and satellite models | Done |
+| Core C–D. Service contract, governance | Export/calendar/nowcast/forecast/scenario API routes and API keys; model registry, run lineage and monitoring | In progress |
 | 4. Asset management portfolio analytics | Factor exposures, VaR/ES with backtests, scenario P&L | Planned |
 | 5. Commercial banking portfolio analytics | Concentration, credit portfolio model and economic capital, RWA, migration and vintages, RAROC/FTP pricing, NII/EVE, CRE stress | Planned |
-| 6. Forecasting and nowcasting | BVAR, conditional forecasts, DFM nowcast | Planned |
+| 6. Forecasting and nowcasting | BVAR, conditional forecasts and factor nowcast delivered in Core B; next: vintage-based forecast evaluation | Initial slice done |
 | 7. Delivery | Shiny app, pkgdown site | Planned |
 
 ## License

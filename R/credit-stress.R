@@ -41,6 +41,9 @@ ek_credit_scenario_stress <- function(scenarios = ek_scenario_library(),
                                       portfolio = NULL,
                                       reference_scenario = "base") {
   ek_validate_scenario_library(scenarios) # nolint: object_usage_linter
+  if (!"UNRATE" %in% names(scenarios$paths)) {
+    ek_credit_input_error("Credit stress requires an `UNRATE` column in scenario paths.")
+  }
   portfolio_source <- if (is.null(portfolio)) "synthetic_sample" else "provided"
   if (is.null(portfolio)) {
     portfolio <- data.frame(

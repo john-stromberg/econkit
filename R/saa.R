@@ -161,6 +161,10 @@ ek_validate_saa_weights <- function(weights, assets) {
 #' ek_saa_scenario_stress(scenarios, weights)
 ek_saa_scenario_stress <- function(scenarios, weights) {
   ek_validate_scenario_library(scenarios) # nolint: object_usage_linter
+  if (!nrow(scenarios$asset_returns)) {
+    stop("SAA stress requires a scenario library with asset-return shocks.",
+         call. = FALSE)
+  }
   assets <- sort(unique(scenarios$asset_returns$asset_class))
   weights <- ek_validate_saa_weights(weights, assets)
   path_key <- paste(

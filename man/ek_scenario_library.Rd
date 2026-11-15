@@ -16,7 +16,8 @@ ek_scenario_library(
 \arguments{
 \item{paths}{Optional data frame of monthly macro paths.}
 
-\item{asset_returns}{Optional data frame of cumulative asset-class shocks.}
+\item{asset_returns}{Optional data frame of cumulative asset-class shocks.
+Requires \code{paths}; omit it for a macro-only library.}
 
 \item{data}{Monthly macro data used to anchor the default sample paths.}
 
@@ -35,15 +36,19 @@ and a \code{synthetic} flag.
 With no inputs, creates illustrative 12-month base, adverse and severe
 paths anchored to the latest available macro observation. Sample asset
 return shocks are deliberately stylized, not forecasts or calibrated
-market estimates. Custom libraries can be supplied as macro paths and
-matching asset-return shocks.
+market estimates. Custom libraries can be supplied as macro paths, with
+optional matching asset-return shocks; \code{\link[=ek_scenario_from_forecast]{ek_scenario_from_forecast()}}
+builds libraries from BVAR forecasts.
 }
 \details{
 Macro paths require \code{scenario_id}, \code{version}, \code{as_of}, \code{data_vintage},
-\code{step}, \code{date}, \code{INDPRO}, \code{CPIAUCSL}, \code{UNRATE}, \code{T10Y3M} and \code{NFCI}.
-Asset shocks require \code{scenario_id}, \code{version}, \code{horizon_months},
-\code{asset_class} and \code{scenario_return}, where returns are cumulative decimal
-returns over the same horizon.
+\code{step} and \code{date}; every other column is a numeric macro variable (for
+example \code{INDPRO}, \code{CPIAUCSL}, \code{UNRATE}, \code{T10Y3M} and \code{NFCI} in the sample
+library). Consumers check for the variables they need: credit stress uses
+\code{UNRATE}. Asset shocks require \code{scenario_id}, \code{version},
+\code{horizon_months}, \code{asset_class} and \code{scenario_return}, where returns are
+cumulative decimal returns over the same horizon. A library without asset
+shocks is macro-only and cannot be used for SAA stress.
 }
 \examples{
 scenarios <- ek_scenario_library()

@@ -3,17 +3,22 @@
 #' With no inputs, creates illustrative 12-month base, adverse and severe
 #' paths anchored to the latest available macro observation. Sample asset
 #' return shocks are deliberately stylized, not forecasts or calibrated
-#' market estimates. Custom libraries can be supplied as macro paths and
-#' matching asset-return shocks.
+#' market estimates. Custom libraries can be supplied as macro paths, with
+#' optional matching asset-return shocks; [ek_scenario_from_forecast()]
+#' builds libraries from BVAR forecasts.
 #'
 #' Macro paths require `scenario_id`, `version`, `as_of`, `data_vintage`,
-#' `step`, `date`, `INDPRO`, `CPIAUCSL`, `UNRATE`, `T10Y3M` and `NFCI`.
-#' Asset shocks require `scenario_id`, `version`, `horizon_months`,
-#' `asset_class` and `scenario_return`, where returns are cumulative decimal
-#' returns over the same horizon.
+#' `step` and `date`; every other column is a numeric macro variable (for
+#' example `INDPRO`, `CPIAUCSL`, `UNRATE`, `T10Y3M` and `NFCI` in the sample
+#' library). Consumers check for the variables they need: credit stress uses
+#' `UNRATE`. Asset shocks require `scenario_id`, `version`,
+#' `horizon_months`, `asset_class` and `scenario_return`, where returns are
+#' cumulative decimal returns over the same horizon. A library without asset
+#' shocks is macro-only and cannot be used for SAA stress.
 #'
 #' @param paths Optional data frame of monthly macro paths.
 #' @param asset_returns Optional data frame of cumulative asset-class shocks.
+#'   Requires `paths`; omit it for a macro-only library.
 #' @param data Monthly macro data used to anchor the default sample paths.
 #' @param as_of Optional latest macro observation date used for anchoring.
 #' @param version Version label for generated sample scenarios.
@@ -28,9 +33,9 @@
 ek_scenario_library <- function(paths = NULL, asset_returns = NULL,
                                 data = NULL, as_of = NULL,
                                 version = "sample-v1", synthetic = NULL) {
-  sample_input <- is.null(paths) && is.null(asset_returns)
-  if (xor(is.null(paths), is.null(asset_returns))) {
-    stop("Supply both `paths` and `asset_returns`, or neither.", call. = FALSE)
+  sample_input <- is.null(paths)
+  if (is.null(paths) && !is.null(asset_returns)) {
+    stop("`asset_returns` requires `paths`.", call. = FALSE)
   }
   if (sample_input) {
     if (is.null(data)) data <- ek_load_dataset("macro_monthly")
@@ -43,6 +48,7 @@ ek_scenario_library <- function(paths = NULL, asset_returns = NULL,
       stop("`data` and `as_of` apply only to generated sample scenarios.",
            call. = FALSE)
     }
+    if (is.null(asset_returns)) asset_returns <- ek_empty_asset_returns()
     if (is.null(synthetic)) synthetic <- FALSE
   }
   if (!is.logical(synthetic) || length(synthetic) != 1L || is.na(synthetic)) {
@@ -77,19 +83,16 @@ ek_validate_scenario_library <- function(scenarios) {
     stop("`scenarios$synthetic` must be one non-missing logical value.",
          call. = FALSE)
   }
-  path_columns <- c(
-    "scenario_id", "version", "as_of", "data_vintage", "step", "date",
-    "INDPRO", "CPIAUCSL", "UNRATE", "T10Y3M", "NFCI"
-  )
+  id_columns <- c("scenario_id", "version", "as_of", "data_vintage", "step", "date")
   shock_columns <- c(
     "scenario_id", "version", "horizon_months", "asset_class",
     "scenario_return"
   )
   paths <- scenarios$paths
   shocks <- scenarios$asset_returns
-  if (!all(path_columns %in% names(paths)) ||
-        !all(shock_columns %in% names(shocks)) ||
-        !nrow(paths) || !nrow(shocks)) {
+  macro_columns <- setdiff(names(paths), id_columns)
+  if (!all(id_columns %in% names(paths)) || !length(macro_columns) ||
+        !all(shock_columns %in% names(shocks)) || !nrow(paths)) {
     stop("Scenario paths or asset shocks are missing required columns or rows.",
          call. = FALSE)
   }
@@ -117,11 +120,10 @@ ek_validate_scenario_library <- function(scenarios) {
         any(shocks$horizon_months != floor(shocks$horizon_months))) {
     stop("Scenario dates and steps have invalid types or values.", call. = FALSE)
   }
-  macro_columns <- c("INDPRO", "CPIAUCSL", "UNRATE", "T10Y3M", "NFCI")
   if (!all(vapply(paths[macro_columns], is.numeric, logical(1))) ||
         any(!is.finite(as.matrix(paths[macro_columns]))) ||
-        any(paths$INDPRO <= 0) || any(paths$CPIAUCSL <= 0) ||
-        any(paths$UNRATE < 0) || !is.numeric(shocks$scenario_return) ||
+        any(paths[["INDPRO"]] <= 0) || any(paths[["CPIAUCSL"]] <= 0) ||
+        any(paths[["UNRATE"]] < 0) || !is.numeric(shocks$scenario_return) ||
         any(!is.finite(shocks$scenario_return)) ||
         any(shocks$scenario_return <= -1)) {
     stop("Macro paths and asset shocks contain invalid numeric values.",
@@ -132,8 +134,9 @@ ek_validate_scenario_library <- function(scenarios) {
   shock_key <- paste(shocks$scenario_id, shocks$version, sep = "\r")
   path_step_key <- paste(path_key, paths$step, sep = "\r")
   shock_asset_key <- paste(shock_key, shocks$asset_class, sep = "\r")
+  has_shocks <- nrow(shocks) > 0
   if (anyDuplicated(path_step_key) || anyDuplicated(shock_asset_key) ||
-        !setequal(unique(path_key), unique(shock_key))) {
+        (has_shocks && !setequal(unique(path_key), unique(shock_key)))) {
     stop("Scenario paths and asset shocks must have unique, matching keys.",
          call. = FALSE)
   }
@@ -149,8 +152,8 @@ ek_validate_scenario_library <- function(scenarios) {
            call. = FALSE)
     }
     scenario_shocks <- shocks[shock_key == key, , drop = FALSE]
-    if (length(unique(scenario_shocks$horizon_months)) != 1L ||
-          scenario_shocks$horizon_months[1] != nrow(path)) {
+    if (has_shocks && (length(unique(scenario_shocks$horizon_months)) != 1L ||
+                         scenario_shocks$horizon_months[1] != nrow(path))) {
       stop("Asset shocks must match the number of monthly scenario steps.",
            call. = FALSE)
     }
@@ -164,6 +167,83 @@ ek_validate_scenario_library <- function(scenarios) {
          call. = FALSE)
   }
   invisible(scenarios)
+}
+
+ek_empty_asset_returns <- function() {
+  data.frame(scenario_id = character(), version = character(), horizon_months = integer(),
+             asset_class = character(), scenario_return = numeric(),
+             stringsAsFactors = FALSE)
+}
+
+#' Build a macro scenario library from BVAR forecasts
+#'
+#' Converts monthly [ek_bvar_forecast()] objects, typically one unconditional
+#' and several conditional forecasts from the same fit, into a macro-only
+#' [ek_scenario_library()] for credit stress and other path consumers.
+#'
+#' Each scenario takes the chosen summary path for every model variable.
+#' `as_of` and `data_vintage` are the model's last observation date, and
+#' step `i` is dated `i` months later. All forecasts must be monthly and
+#' share the end date and horizon, so they are directly comparable; include
+#' a `"base"` scenario to use the library with [ek_credit_scenario_stress()].
+#'
+#' @param forecasts Named list of `ek_bvar_forecast` objects; names become
+#'   scenario IDs.
+#' @param version Version label for the scenarios.
+#' @param path Summary statistic used as the scenario path: `"central"`
+#'   (posterior-mean path), `"median"`, `"mean"`, `"lower"` or `"upper"`.
+#' @param synthetic Whether the forecasts rest on synthetic data. `NULL`
+#'   uses the models' input provenance, treating unknown provenance as
+#'   synthetic.
+#' @return A macro-only `ek_scenario_library` with no asset shocks.
+#' @export
+#' @examples
+#' fit <- ek_bvar(p = 2)
+#' base <- ek_bvar_forecast(fit, h = 6, draws = 50, seed = 1)
+#' hike <- ek_bvar_forecast(fit, h = 6, draws = 50, seed = 1,
+#'                          conditions = list(FEDFUNDS = rep(6, 6)))
+#' lib <- ek_scenario_from_forecast(list(base = base, hike = hike))
+#' head(lib$paths)
+ek_scenario_from_forecast <- function(forecasts, version = "bvar-v1",
+                                      path = c("central", "median", "mean", "lower", "upper"),
+                                      synthetic = NULL) {
+  path <- match.arg(path)
+  ids <- names(forecasts)
+  if (!is.list(forecasts) || !length(forecasts) || is.null(ids) || anyNA(ids) ||
+        any(!nzchar(ids)) || anyDuplicated(ids) ||
+        !all(vapply(forecasts, inherits, logical(1), "ek_bvar_forecast"))) {
+    stop("`forecasts` must be a uniquely named list of `ek_bvar_forecast` objects.",
+         call. = FALSE)
+  }
+  if (!is.character(version) || length(version) != 1L || is.na(version) || !nzchar(version)) {
+    stop("`version` must be one non-empty string.", call. = FALSE)
+  }
+  models <- lapply(forecasts, `[[`, "model")
+  ends <- vapply(models, function(m) as.numeric(m$last_date), numeric(1))
+  horizons <- vapply(forecasts, function(f) length(f$dates), integer(1))
+  if (any(vapply(models, function(m) as.numeric(m$freq), numeric(1)) != 12)) {
+    stop("Scenario libraries need monthly forecasts.", call. = FALSE)
+  }
+  same_vars <- vapply(models, function(m) identical(m$vars, models[[1]]$vars), logical(1))
+  if (length(unique(ends)) != 1L || length(unique(horizons)) != 1L || !all(same_vars)) {
+    stop("All forecasts must share the model variables, end date and horizon.", call. = FALSE)
+  }
+  as_of <- models[[1]]$last_date
+  paths <- do.call(rbind, Map(function(id, fc) {
+    wide <- stats::reshape(fc$summary[c("h", "variable", path)], idvar = "h",
+                           timevar = "variable", direction = "wide")
+    wide <- wide[order(wide$h), , drop = FALSE]
+    names(wide) <- sub(paste0("^", path, "\\."), "", names(wide))
+    data.frame(scenario_id = id, version = version, as_of = as_of, data_vintage = as_of,
+               step = wide$h, date = ek_add_months(as_of, wide$h),
+               wide[fc$model$vars], stringsAsFactors = FALSE, check.names = FALSE)
+  }, ids, forecasts))
+  rownames(paths) <- NULL
+  if (is.null(synthetic)) {
+    synthetic <- !all(vapply(models, function(m) identical(m$provenance$synthetic, FALSE),
+                             logical(1)))
+  }
+  ek_scenario_library(paths, synthetic = synthetic)
 }
 
 ek_make_sample_scenarios <- function(data, as_of, version) {
