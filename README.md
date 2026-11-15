@@ -52,7 +52,8 @@ weights <- stats::setNames(
 ek_saa_portfolio(assumptions, weights)           # summarize a policy mix
 
 scenarios <- ek_scenario_library()                 # illustrative 12-month paths
-ek_saa_scenario_stress(scenarios, b)               # scenario-weighted policy returns
+ek_saa_scenario_stress(scenarios, b)               # shocked policy returns
+ek_credit_scenario_stress(scenarios)$summary       # sample banking credit stress
 
 ek_render_macro_dashboard("macro-dashboard.html")  # Quarto HTML report
 ```
@@ -72,6 +73,27 @@ plumber::pr("inst/plumber/api.R") |>
 Available endpoints are `/health`, `/v1/signals`, `/v1/positioning/playbook`,
 `/v1/saa/assumptions`, `/v1/scenarios`, and compute-only `POST` routes
 `/v1/saa/portfolio` and `/v1/saa/stress`, each with a JSON `weights` object.
+`GET /v1/banking/credit-stress` runs a synthetic sample portfolio, while
+`POST /v1/banking/credit-stress` accepts a JSON `portfolio` array and applies
+the same synthetic scenarios without persisting the portfolio:
+
+```json
+{
+  "portfolio": [
+    {"segment": "CRE", "ead": 1000000, "pd_12m": 0.025,
+     "lgd": 0.4, "unemployment_beta": 0.35}
+  ]
+}
+```
+
+The sample credit stress adjusts each segment's default hazard using monthly
+unemployment differences from the base path. It assumes constant exposure and
+LGD and does not model scenario probabilities, lifetime terms, discounting or
+accounting stages. Inputs and sensitivities are illustrative; results are not
+CECL/IFRS 9 allowances, regulatory stress results or calibrated forecasts.
+Amounts must use common units; no currency conversion is performed. Output
+as-of dates and vintages describe the scenarios, not the supplied portfolio.
+Only send non-sensitive demonstration portfolios to the unauthenticated API.
 The POST routes do not persist data or recommend allocations. Scenario paths
 and asset shocks are synthetic illustrations, not forecasts or calibrated
 market estimates. Sample endpoints identify synthetic data. This
@@ -117,6 +139,7 @@ The series catalog is in [`inst/config/series.yml`](inst/config/series.yml).
 | Multi-asset positioning | `ek_positioning_playbook()` (signals at month t, return observations at t+1), `ek_positioning_tilts()` (neutral, bounded heuristic), `ek_positioning_gap()` |
 | Strategic asset allocation | `ek_saa_assumptions()` (historical return/risk/covariance inputs), `ek_saa_portfolio()` (policy-mix summary; no optimizer) |
 | Scenario analysis | `ek_scenario_library()` (versioned macro paths and asset shocks), `ek_validate_scenario_library()`, `ek_saa_scenario_stress()` |
+| Banking credit stress | `ek_credit_scenario_stress()` (scenario-specific segment default probabilities and expected credit losses) |
 | API | Read-only/compute-only Plumber endpoints for sample or database-backed signals, positioning playbook and SAA |
 | PM signal service | `ek_build_signals()` (delayed labels), local RDS storage via `ek_store_signals()` / `ek_read_signals()`, or shared DBI/PostgreSQL storage via `ek_init_signal_store_db()`, `ek_store_signals_db()` and `ek_read_signals_db()` |
 | Reporting | `ek_render_macro_dashboard()` and the template in `inst/templates/macro-dashboard.qmd` |
@@ -147,7 +170,7 @@ CI (GitHub Actions) runs `R CMD check` on Ubuntu and Windows, lintr, and a cover
 | 1. Macro core | Recession model and backtest, Sahm rule, regimes, output gap, dashboard | Done |
 | 1b. PM positioning and signal store | Regime playbook, constrained tilts, portfolio gap, versioned signal snapshots and targets outputs | Done (initial local-store slice) |
 | 2. Service and SAA | Plumber API, sample-backed SAA inputs and optional PostgreSQL signal store | Initial local implementation |
-| 3. Scenario analysis | Versioned base/adverse/severe macro paths, SAA stress summaries and API routes; follow with CECL/stress integration | Sample-backed initial slice |
+| 3. Scenario analysis | Versioned macro paths, SAA stress and illustrative banking credit stress with API routes; follow with CECL/stress integration | Sample-backed initial slice |
 | 4. Asset management portfolio analytics | Factor exposures, VaR/ES with backtests, scenario P&L | Planned |
 | 5. Commercial banking portfolio analytics | Concentration, credit portfolio model and economic capital, RWA, migration and vintages, RAROC/FTP pricing, NII/EVE, CRE stress | Planned |
 | 6. Forecasting and nowcasting | BVAR, conditional forecasts, DFM nowcast | Planned |

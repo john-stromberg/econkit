@@ -70,6 +70,26 @@ function() {
   )
 }
 
+#* Illustrative credit stress for a sample banking portfolio
+#* @get /v1/banking/credit-stress
+function() {
+  ek_credit_scenario_stress()
+}
+
+#* Apply sample macro scenarios to a supplied credit portfolio
+#* @param req JSON request body containing a `portfolio` array of segments.
+#* @parser json list(simplifyVector = FALSE)
+#* @post /v1/banking/credit-stress
+function(req, res) {
+  tryCatch(
+    ek_credit_scenario_stress(portfolio = ek_api_credit_portfolio(req)),
+    econkit_credit_input_error = function(error) {
+      res$status <- 400L
+      list(error = conditionMessage(error))
+    }
+  )
+}
+
 #* Apply a scenario set to a strategic policy mix
 #* @param req JSON request body containing a named `weights` object.
 #* @post /v1/saa/stress
@@ -101,4 +121,39 @@ ek_api_weights <- function(req) {
     stop("Request JSON must contain a named `weights` object.", call. = FALSE)
   }
   unlist(req$body$weights, use.names = TRUE)
+}
+
+ek_api_credit_portfolio <- function(req) {
+  body <- req$body
+  required <- c("segment", "ead", "pd_12m", "lgd", "unemployment_beta")
+  invalid <- function() {
+    stop(errorCondition(
+      "Request JSON must contain a portfolio array with one complete segment per object.",
+      class = "econkit_credit_input_error"
+    ))
+  }
+  if (!is.list(body) || !identical(names(body), "portfolio")) invalid()
+  portfolio <- body$portfolio
+  if (!is.list(portfolio) || !length(portfolio) || !is.null(names(portfolio))) {
+    invalid()
+  }
+  valid <- vapply(portfolio, function(row) {
+    if (!is.list(row) || is.null(names(row)) ||
+          anyDuplicated(names(row)) || !setequal(names(row), required)) {
+      return(FALSE)
+    }
+    is.character(row$segment) && length(row$segment) == 1L &&
+      all(vapply(required[-1], function(column) {
+        is.numeric(row[[column]]) && length(row[[column]]) == 1L
+      }, logical(1)))
+  }, logical(1))
+  if (!all(valid)) invalid()
+  data.frame(
+    segment = vapply(portfolio, `[[`, character(1), "segment"),
+    ead = vapply(portfolio, `[[`, numeric(1), "ead"),
+    pd_12m = vapply(portfolio, `[[`, numeric(1), "pd_12m"),
+    lgd = vapply(portfolio, `[[`, numeric(1), "lgd"),
+    unemployment_beta = vapply(portfolio, `[[`, numeric(1), "unemployment_beta"),
+    stringsAsFactors = FALSE
+  )
 }

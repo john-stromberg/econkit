@@ -6,7 +6,7 @@
 \alias{econkit-package}
 \title{econkit: Economic Analysis Tools for Asset Management and Banking}
 \description{
-Practical, reproducible macroeconomic analysis for asset management and banking. Provides a unified data layer (bundled sample data and FRED), frequency alignment and transformations, yield-curve recession probability models with leakage-free backtests, the Sahm rule, output gap estimation (Hamilton regression filter and Hodrick-Prescott), growth/inflation regime classification, Markov-switching regime models, regime-conditioned asset-class return analysis, constrained positioning tilts, point-in-time signal snapshots, historical strategic allocation inputs, versioned macro scenarios and a sample-backed read-only API. Parameterised Quarto reporting supports reproducible desk workflows.
+Practical, reproducible macroeconomic analysis for asset management and banking. Provides a unified data layer (bundled sample data and FRED), frequency alignment and transformations, yield-curve recession probability models with leakage-free backtests, the Sahm rule, output gap estimation (Hamilton regression filter and Hodrick-Prescott), growth/inflation regime classification, Markov-switching regime models, regime-conditioned asset-class return analysis, constrained positioning tilts, point-in-time signal snapshots, historical strategic allocation inputs, versioned macro scenarios, illustrative banking credit stress and a sample-backed read-only API. Parameterised Quarto reporting supports reproducible desk workflows.
 }
 \seealso{
 Useful links:

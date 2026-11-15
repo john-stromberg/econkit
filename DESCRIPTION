@@ -11,8 +11,8 @@ Description: Practical, reproducible macroeconomic analysis for asset
     growth/inflation regime classification, Markov-switching regime models,
     regime-conditioned asset-class return analysis, constrained positioning
     tilts, point-in-time signal snapshots, historical strategic allocation
-    inputs, versioned macro scenarios and a sample-backed read-only API.
-    Parameterised Quarto
+    inputs, versioned macro scenarios, illustrative banking credit stress and
+    a sample-backed read-only API. Parameterised Quarto
     reporting supports reproducible desk workflows.
 License: MIT + file LICENSE
 URL: https://github.com/john-stromberg/econkit
