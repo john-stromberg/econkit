@@ -6,7 +6,7 @@
 
 **econkit** is an R toolkit for applied economic analysis in **asset management** and **banking**. It turns macro and market data into outputs a business can make decisions from: recession risk, regime signals, stress scenarios, rate and credit risk, and reports. Model governance follows the expectations of SR 11-7.
 
-> **Status:** Phase 0 (foundation), Phase 1 (macro core) and the first Phase 1b positioning-service slice are complete. See the [roadmap](#roadmap).
+> **Status:** The foundation, macro core, positioning service, core economics service (data, analysis, API and governance) and scenario library are complete; rates, credit, monitoring and strategic modules are in progress or planned. All bundled data is synthetic. See the [roadmap](#roadmap).
 
 ## Installation
 
@@ -367,21 +367,37 @@ CI (GitHub Actions) runs `R CMD check` on Ubuntu and Windows, lintr, and a cover
 
 ## Roadmap
 
-| Phase | Scope | Status |
-|---|---|---|
-| 0. Foundation | Package skeleton, CI, data layer, sample data | Done |
-| 1. Macro core | Recession model and backtest, Sahm rule, regimes, output gap, dashboard | Done |
-| 1b. PM positioning and signal store | Regime playbook, constrained tilts, portfolio gap, versioned signal snapshots and targets outputs | Done (initial local-store slice) |
-| 2. Service and SAA | Plumber API, sample-backed SAA inputs and optional PostgreSQL signal store | Initial local implementation |
-| 3. Scenario analysis | Versioned macro paths, SAA stress and banking credit stress with API routes, calibrated segment sensitivities, BVAR-driven scenarios and scenario-weighted CECL/IFRS 9-style lifetime ECL | Sample-backed |
-| Core A. Data foundation | Series registry, point-in-time vintages, provenance, source adapters, Parquet/CSV export, release calendar | Done |
-| Core B. Analysis core | Indicator transforms, Taylor rule, surprise index, factor nowcast, BVAR with conditional forecasts, scenario builder and satellite models | Done |
-| Core C. Service contract | Export, sources, calendar, nowcast, forecast and scenario-build API routes; API keys | Done |
-| Core D. Governance | Model registry, run lineage and monitoring | Done |
-| 4. Asset management portfolio analytics | Factor exposures, VaR/ES with backtests, scenario P&L | Planned |
-| 5. Commercial banking portfolio analytics | Concentration, credit portfolio model and economic capital, RWA, migration and vintages, RAROC/FTP pricing, NII/EVE, CRE stress | Planned |
-| 6. Forecasting and nowcasting | BVAR, conditional forecasts and factor nowcast delivered in Core B; next: vintage-based forecast evaluation | Initial slice done |
-| 7. Delivery | Shiny app, pkgdown site | Planned |
+One roadmap covers asset management (AM), commercial banking (CB) and
+investment banking (IB). Workflows are grouped by the shared engines they use,
+so each engine serves all three business lines.
+
+| Shared engine | Asset management | Commercial banking | Investment banking |
+|---|---|---|---|
+| Regime and playbook | Tactical allocation, factor and sector rotation | Through-the-cycle risk appetite | Sector screening, fee forecasting |
+| Signal store | Rebalance triggers, risk overlays | Early-warning triggers | DCM/ECM market-window signal |
+| Scenario library | SAA/CMA scenarios, stress overlays | CECL/IFRS 9, CCAR/DFAST/ICAAP, FP&A | Scenario valuations, leveraged finance stress |
+| Rates and curves | Duration and curve positioning | ALM, NII/EVE, FTP, deposit betas | DCF discount rates, DCM pricing |
+| Credit and stress | Credit allocation, hedge triggers | PD/LGD/EAD, migration, concentration, economic capital, RAROC, CRE | Covenant tests, securitization collateral, counterparty risk |
+
+**Real-data readiness** shows what each phase needs beyond the bundled
+synthetic data: *Public* runs on FRED/ALFRED and other free public sources;
+*Vendor* needs licensed or internal data such as curves, spreads, returns,
+loan tapes or deal data.
+
+| Phase | Scope | Builds on | Status | Real-data readiness |
+|---|---|---|---|---|
+| 0–1. Foundation and macro core | Package, CI, data layer, recession model and backtest, Sahm rule, regimes, output gap, dashboard | — | Done | Public |
+| 1b. Positioning and signal store | Regime playbook, constrained tilts, portfolio gap, versioned signal snapshots | Macro core | Done | Public; Vendor for asset returns |
+| C. Core economics service | **A** series registry, vintages, provenance, adapters, release calendar, Parquet/CSV export; **B** transforms, Taylor rule, surprise index, nowcast, BVAR with conditional forecasts, scenario builder, satellites; **C** API contract and keys; **D** model inventory, run lineage, monitoring | — | Done | Public; vendor adapters are interfaces only |
+| 2. Service platform | Done: Plumber API, optional PostgreSQL store, Parquet/CSV export, API keys. Next: Excel/CSV feed, async jobs and webhooks, alerting on monitoring breaches, maker/checker overrides on top of run lineage | Core C, D | Partial | Not data-dependent |
+| 3. Scenario library | Sample and BVAR-built versioned scenarios, vintages, SAA stress | Core B | Done | Public; Vendor for asset shocks |
+| 4. Rates and curves | Curve model (e.g. Nelson–Siegel factors as BVAR satellites), rate-path scenarios, NII/EVE, FTP, deposit betas, DCF and DCM pricing inputs | BVAR, satellites, scenarios | Next candidate | Public Treasury curves; Vendor for spreads and balance sheets |
+| 5. Credit and stress | Done: PD sensitivity calibration, scenario credit stress, scenario-weighted CECL/IFRS 9-style lifetime ECL. Next: LGD/EAD satellites, rating migration, concentration, economic capital and RWA, ICAAP-style capital, RAROC, CRE stress, leveraged-finance covenant stress, securitization collateral | Satellites, scenarios | Partial | Vendor (loan tapes, default and recovery history) |
+| 6. Monitoring and signals | Early-warning watchlist, CRE monitor, DCM/ECM market-window signal, tail-risk overlays | Signal store, monitoring | Planned | Public and Vendor |
+| 7. Strategic and commercial | Done: SAA. Next: factor exposures, VaR/ES with backtests, scenario P&L, factor rotation, manager due diligence, fee and pipeline forecasts, loan pricing, client reporting | All engines | Partial | Vendor (returns, holdings, deal pipeline) |
+| 8. Forecast quality | Vintage-based forecast evaluation, nowcast and BVAR backtests | Vintages, BVAR, nowcast | Planned | Public (ALFRED) |
+| 9. Delivery | Shiny app, pkgdown site, Python client, Quarto committee packs (IC, ALCO, underwriting) | API | Planned | Not data-dependent |
+| Controls | Done: versioning and lineage, model inventory, monitoring. Next: maker/checker approvals, information barriers for deal-tagged runs, research compliance (disclaimers, approval, archiving) | Core D | Partial | Not data-dependent |
 
 ## License
 
