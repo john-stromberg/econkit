@@ -130,6 +130,7 @@ DBI::dbDisconnect(conn)
 | `"sample"` (default) | Bundled `macro_monthly` | **Synthetic**, calibrated to US dynamics. For demos, tests and CI only. Rebuild it with `data-raw/macro_monthly.R`. |
 | Asset returns | Bundled `asset_returns` | **Synthetic and deliberately regime-conditioned**, for workflow tests only; not market history, performance evidence or suitable for investment decisions. Rebuild with `data-raw/asset_returns.R`. |
 | `"fred"` | `ek_get_series(source = "fred")` | Requires `fredr` and `FRED_API_KEY` in `~/.Renviron` (never commit it). Downloads are cached in `ek_cache_dir()` and aggregated to monthly or quarterly frequency. |
+| Vendor or internal data | `ek_register_source()` | Adapter interface for licensed or in-house feeds. `ek_csv_fetcher()` serves long-format extracts (`source_id`, `date`, `value`, optional `realtime_start` for vintages). List adapters with `ek_sources()`. |
 
 The series registry is in [`inst/config/series.yml`](inst/config/series.yml).
 Each entry records the provider id, native frequency, aggregation rule
@@ -143,18 +144,35 @@ FRED. Check provider terms before redistributing licensed series.
 q <- ek_get_series(c("UNRATE", "PAYEMS"), frequency = "quarter", vintage = "2020-06-30")
 ek_provenance(q)   # source, vintage method, retrieval time, series metadata
 ek_series_long(q)  # one row per date and series, for BI tools and feeds
+ek_export_series(q, "exports/macro.parquet")  # Parquet + provenance sidecar (needs arrow)
+ek_release_calendar(from = Sys.Date(), to = Sys.Date() + 30)  # expected data arrivals
 ```
 
 With `source = "fred"`, `vintage` queries ALFRED, so values are those
 published on that date, including later revisions. The synthetic sample has no
 vintages: it approximates point-in-time data by masking each value until the
 period end plus the series' release lag, which does not model revisions.
+`ek_release_calendar()` applies the same lag rule, so it is an estimate rather
+than an official release schedule.
+
+Vendor series are added to the registry with a YAML file in the same layout as
+`series.yml`, listed in `options(econkit.registry = )` or the
+`ECONKIT_REGISTRY` environment variable, with `source` set to the adapter name:
+
+```r
+options(econkit.registry = "config/vendor-series.yml")
+ek_register_source("vendor", ek_csv_fetcher("extracts/vendor.csv"), supports_vintage = TRUE)
+ek_get_series("VENDOR_HY_OAS", source = "vendor", vintage = "2024-03-05")
+```
+
+Exports are written atomically, in long format, and their provenance includes a
+`data_md5` checksum of the rows that is the same for Parquet and CSV.
 
 ## What's included (v0.1)
 
 | Area | Functions |
 |---|---|
-| Data layer | `ek_get_series()`, `ek_series_catalog()`, `ek_provenance()`, `ek_series_long()`, `ek_align_frequency()`, `ek_floor_date()`, `ek_transform()`, `ek_lag()`, `ek_cache_dir()` |
+| Data layer | `ek_get_series()`, `ek_series_catalog()`, `ek_provenance()`, `ek_series_long()`, `ek_export_series()`, `ek_release_calendar()`, `ek_register_source()`, `ek_sources()`, `ek_csv_fetcher()`, `ek_align_frequency()`, `ek_floor_date()`, `ek_transform()`, `ek_lag()`, `ek_cache_dir()` |
 | Recession risk | `ek_recession_model()`, `predict()`, `ek_backtest_recession()`, `ek_classification_metrics()`, `ek_sahm_rule()` |
 | Cycle and regimes | `ek_output_gap()` (Hamilton or HP), `ek_growth_inflation_regime()`, `ek_markov_switching()` |
 | Multi-asset positioning | `ek_positioning_playbook()` (signals at month t, return observations at t+1), `ek_positioning_tilts()` (neutral, bounded heuristic), `ek_positioning_gap()` |
@@ -191,7 +209,9 @@ CI (GitHub Actions) runs `R CMD check` on Ubuntu and Windows, lintr, and a cover
 | 1. Macro core | Recession model and backtest, Sahm rule, regimes, output gap, dashboard | Done |
 | 1b. PM positioning and signal store | Regime playbook, constrained tilts, portfolio gap, versioned signal snapshots and targets outputs | Done (initial local-store slice) |
 | 2. Service and SAA | Plumber API, sample-backed SAA inputs and optional PostgreSQL signal store | Initial local implementation |
-| 3. Scenario analysis | Versioned macro paths, SAA stress and illustrative banking credit stress with API routes; follow with CECL/stress integration | Sample-backed initial slice |
+| 3. Scenario analysis | Versioned macro paths, SAA stress and illustrative banking credit stress with API routes; follow with CECL/stress integration | Sample-backed initial slice (banking work paused for core enhancements) |
+| Core A. Data foundation | Series registry, point-in-time vintages, provenance, source adapters, Parquet/CSV export, release calendar | Done |
+| Core B–D. Analysis core, service contract, governance | Indicators, nowcast, BVAR and scenario builder; export/calendar/forecast API routes and API keys; model registry, run lineage and monitoring | In progress |
 | 4. Asset management portfolio analytics | Factor exposures, VaR/ES with backtests, scenario P&L | Planned |
 | 5. Commercial banking portfolio analytics | Concentration, credit portfolio model and economic capital, RWA, migration and vintages, RAROC/FTP pricing, NII/EVE, CRE stress | Planned |
 | 6. Forecasting and nowcasting | BVAR, conditional forecasts, DFM nowcast | Planned |

@@ -20,11 +20,13 @@ BugReports: https://github.com/john-stromberg/econkit/issues
 Depends: 
     R (>= 4.1.0)
 Imports: 
+    jsonlite,
     stats,
     tools,
     utils,
     yaml
 Suggests: 
+    arrow,
     DBI,
     covr,
     fredr,

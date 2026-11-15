@@ -6,7 +6,7 @@
 \usage{
 ek_get_series(
   ids = NULL,
-  source = c("sample", "fred"),
+  source = "sample",
   start = NULL,
   end = NULL,
   refresh = FALSE,
@@ -18,12 +18,14 @@ ek_get_series(
 \item{ids}{Character vector of series ids from \code{\link[=ek_series_catalog]{ek_series_catalog()}}.
 \code{NULL} returns the series included in the sample data (\code{in_sample}).}
 
-\item{source}{\code{"sample"} or \code{"fred"}.}
+\item{source}{\code{"sample"}, \code{"fred"} or the name of a source registered with
+\code{\link[=ek_register_source]{ek_register_source()}}.}
 
 \item{start, end}{Optional start and end dates (inclusive), compared with
 the period start date.}
 
-\item{refresh}{For \code{source = "fred"}, ignore the cache and re-download.}
+\item{refresh}{For cached sources such as \code{"fred"}, ignore the cache and
+re-download.}
 
 \item{frequency}{Output frequency: \code{"month"} (default) or \code{"quarter"}.}
 
@@ -42,6 +44,9 @@ synthetic \link{macro_monthly} dataset, which works offline. Use
 \code{source = "fred"} for live FRED data, which requires the \code{fredr} package
 and a \code{FRED_API_KEY} environment variable (put it in \code{.Renviron}; never
 commit it). FRED downloads are cached on disk (see \code{\link[=ek_cache_dir]{ek_cache_dir()}}).
+Other providers, such as licensed vendor extracts, can be added with
+\code{\link[=ek_register_source]{ek_register_source()}}; every requested series must then have that
+source in the registry.
 }
 \details{
 Each series is aggregated to the output frequency with the rule recorded
@@ -55,12 +60,13 @@ require all three months; incomplete quarters are \code{NA}.
 
 \code{vintage} returns the data as it would have been known on that date.
 For \code{source = "fred"} this queries ALFRED real-time vintages, so it
-reflects both publication timing and later revisions. For
-\code{source = "sample"} the synthetic data has no vintages, so values are
-masked when the end of the period, plus the series' \code{release_lag_days},
-falls after the vintage date. This release-lag approximation does not
-model revisions; whole periods are dropped rather than partially
-aggregated.
+reflects both publication timing and later revisions. Registered adapters
+that support vintages (for example a CSV with a \code{realtime_start} column)
+work the same way. For the synthetic sample, and adapters without vintage
+support, values are masked when the end of the period, plus the series'
+\code{release_lag_days}, falls after the vintage date. This release-lag
+approximation does not model revisions; whole periods are dropped rather
+than partially aggregated.
 }
 
 \examples{

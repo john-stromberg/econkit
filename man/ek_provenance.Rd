@@ -11,9 +11,10 @@ ek_provenance(x)
 }
 \value{
 A list with \code{source}, \code{synthetic}, \code{frequency}, \code{vintage},
-\code{vintage_method} (\code{"latest"}, \code{"alfred"} or
-\code{"release_lag_approximation"}), \code{retrieved_at} (UTC), \code{econkit_version}
-and \code{series} (the registry rows of the returned series).
+\code{vintage_method} (\code{"latest"}, \code{"alfred"}, an adapter's own method such
+as \code{"source_vintage"}, or \code{"release_lag_approximation"}), \code{retrieved_at}
+(UTC), \code{econkit_version} and \code{series} (the registry rows of the returned
+series).
 }
 \description{
 Provenance of a series extract

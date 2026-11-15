@@ -11,6 +11,12 @@ ek_catalog_fields <- c(
 #' conservative publication lag, licensing notes and whether it is part of
 #' the bundled synthetic sample data.
 #'
+#' Additional registries, for example vendor series served by an adapter
+#' registered with [ek_register_source()], can be supplied as YAML files with
+#' the same layout. List their paths in the `econkit.registry` option or the
+#' `ECONKIT_REGISTRY` environment variable (separated by `;`). Their ids must
+#' not duplicate the built-in registry.
+#'
 #' @return A data frame with one row per series and columns `id`, `title`,
 #'   `units`, `frequency` (`daily`, `weekly`, `monthly` or `quarterly`),
 #'   `category`, `transform`, `source`, `source_id`, `aggregation` (`mean`,
@@ -23,7 +29,14 @@ ek_catalog_fields <- c(
 #' cat[cat$in_sample, c("id", "frequency", "aggregation")]
 ek_series_catalog <- function() {
   path <- system.file("config", "series.yml", package = "econkit", mustWork = TRUE)
-  ek_parse_catalog(yaml::read_yaml(path))
+  series <- yaml::read_yaml(path)$series
+  extra <- getOption("econkit.registry", Sys.getenv("ECONKIT_REGISTRY", ""))
+  extra <- trimws(unlist(strsplit(paste(extra, collapse = ";"), ";", fixed = TRUE)))
+  for (file in extra[nzchar(extra)]) {
+    if (!file.exists(file)) stop("Registry file not found: ", file, call. = FALSE)
+    series <- c(series, yaml::read_yaml(file)$series)
+  }
+  ek_parse_catalog(list(series = series))
 }
 
 ek_parse_catalog <- function(cfg) {
@@ -57,8 +70,15 @@ ek_validate_catalog <- function(cat) {
   }
   check_set("frequency", c("daily", "weekly", "monthly", "quarterly"))
   check_set("aggregation", c("mean", "last", "sum", "max"))
-  check_set("source", c("fred"))
   check_set("transform", eval(formals(ek_transform)$method))
+  bad_source <- cat$id[is.na(cat$source) | !grepl("^[A-Za-z][A-Za-z0-9_.-]*$", cat$source)]
+  if (length(bad_source) > 0) {
+    fail(paste("`source` must name a data adapter (series",
+               paste(bad_source, collapse = ", "), ")"))
+  }
+  if (any(cat$in_sample & cat$source != "fred")) {
+    fail("only built-in FRED series can be flagged `in_sample`")
+  }
   bad_lag <- cat$id[is.na(cat$release_lag_days) | cat$release_lag_days < 0]
   if (length(bad_lag) > 0) {
     fail(paste("`release_lag_days` must be a non-negative integer (series",
@@ -76,6 +96,9 @@ ek_validate_catalog <- function(cat) {
 #' `source = "fred"` for live FRED data, which requires the `fredr` package
 #' and a `FRED_API_KEY` environment variable (put it in `.Renviron`; never
 #' commit it). FRED downloads are cached on disk (see [ek_cache_dir()]).
+#' Other providers, such as licensed vendor extracts, can be added with
+#' [ek_register_source()]; every requested series must then have that
+#' source in the registry.
 #'
 #' Each series is aggregated to the output frequency with the rule recorded
 #' in [ek_series_catalog()] (for example `mean` for rates, `last` for
@@ -87,19 +110,22 @@ ek_validate_catalog <- function(cat) {
 #' @section Point-in-time data:
 #' `vintage` returns the data as it would have been known on that date.
 #' For `source = "fred"` this queries ALFRED real-time vintages, so it
-#' reflects both publication timing and later revisions. For
-#' `source = "sample"` the synthetic data has no vintages, so values are
-#' masked when the end of the period, plus the series' `release_lag_days`,
-#' falls after the vintage date. This release-lag approximation does not
-#' model revisions; whole periods are dropped rather than partially
-#' aggregated.
+#' reflects both publication timing and later revisions. Registered adapters
+#' that support vintages (for example a CSV with a `realtime_start` column)
+#' work the same way. For the synthetic sample, and adapters without vintage
+#' support, values are masked when the end of the period, plus the series'
+#' `release_lag_days`, falls after the vintage date. This release-lag
+#' approximation does not model revisions; whole periods are dropped rather
+#' than partially aggregated.
 #'
 #' @param ids Character vector of series ids from [ek_series_catalog()].
 #'   `NULL` returns the series included in the sample data (`in_sample`).
-#' @param source `"sample"` or `"fred"`.
+#' @param source `"sample"`, `"fred"` or the name of a source registered with
+#'   [ek_register_source()].
 #' @param start,end Optional start and end dates (inclusive), compared with
 #'   the period start date.
-#' @param refresh For `source = "fred"`, ignore the cache and re-download.
+#' @param refresh For cached sources such as `"fred"`, ignore the cache and
+#'   re-download.
 #' @param frequency Output frequency: `"month"` (default) or `"quarter"`.
 #' @param vintage Optional as-of date for point-in-time data (see below).
 #'
@@ -114,12 +140,15 @@ ek_validate_catalog <- function(cat) {
 #' q <- ek_get_series(c("UNRATE", "PAYEMS"), frequency = "quarter", vintage = "2020-06-30")
 #' tail(q)
 #' ek_provenance(q)$vintage_method
-ek_get_series <- function(ids = NULL, source = c("sample", "fred"),
+ek_get_series <- function(ids = NULL, source = "sample",
                           start = NULL, end = NULL, refresh = FALSE,
                           frequency = c("month", "quarter"), vintage = NULL) {
-  source <- match.arg(source)
   frequency <- match.arg(frequency)
   vintage <- ek_as_vintage(vintage)
+  adapter <- NULL
+  if (!identical(source, "sample")) {
+    adapter <- ek_source_adapter(source) # nolint: object_usage_linter
+  }
   cat <- ek_series_catalog()
   if (is.null(ids)) ids <- cat$id[cat$in_sample]
   ids <- unique(as.character(ids))
@@ -130,11 +159,19 @@ ek_get_series <- function(ids = NULL, source = c("sample", "fred"),
   }
   meta <- cat[match(ids, cat$id), , drop = FALSE]
   rownames(meta) <- NULL
+  if (!is.null(adapter)) {
+    other <- meta$id[meta$source != source]
+    if (length(other) > 0) {
+      stop("Series not provided by source \"", source, "\": ",
+           paste(other, collapse = ", "), ".", call. = FALSE)
+    }
+  }
 
-  out <- switch(source,
-    sample = ek_get_sample_series(meta, frequency, vintage),
-    fred = ek_get_fred(meta, frequency, vintage, refresh = refresh)
-  )
+  out <- if (is.null(adapter)) {
+    ek_get_sample_series(meta, frequency, vintage)
+  } else {
+    ek_get_adapter_series(adapter, meta, frequency, vintage, refresh = refresh)
+  }
 
   if (!is.null(start)) out <- out[out$date >= as.Date(start), , drop = FALSE]
   if (!is.null(end)) out <- out[out$date <= as.Date(end), , drop = FALSE]
@@ -142,13 +179,13 @@ ek_get_series <- function(ids = NULL, source = c("sample", "fred"),
   attr(out, "source") <- source
   attr(out, "provenance") <- list(
     source = source,
-    synthetic = identical(source, "sample"),
+    synthetic = if (is.null(adapter)) TRUE else adapter$synthetic,
     frequency = frequency,
     vintage = if (is.null(vintage)) NA_character_ else format(vintage),
     vintage_method = if (is.null(vintage)) {
       "latest"
-    } else if (source == "fred") {
-      "alfred"
+    } else if (!is.null(adapter) && adapter$supports_vintage) {
+      adapter$vintage_method
     } else {
       "release_lag_approximation"
     },
@@ -163,9 +200,10 @@ ek_get_series <- function(ids = NULL, source = c("sample", "fred"),
 #'
 #' @param x A data frame returned by [ek_get_series()].
 #' @return A list with `source`, `synthetic`, `frequency`, `vintage`,
-#'   `vintage_method` (`"latest"`, `"alfred"` or
-#'   `"release_lag_approximation"`), `retrieved_at` (UTC), `econkit_version`
-#'   and `series` (the registry rows of the returned series).
+#'   `vintage_method` (`"latest"`, `"alfred"`, an adapter's own method such
+#'   as `"source_vintage"`, or `"release_lag_approximation"`), `retrieved_at`
+#'   (UTC), `econkit_version` and `series` (the registry rows of the returned
+#'   series).
 #' @export
 #' @examples
 #' ek_provenance(ek_get_series("UNRATE"))$synthetic
@@ -308,7 +346,7 @@ ek_fred_fetch <- function(source_id, vintage = NULL) {
   data.frame(date = as.Date(obs$date), value = as.numeric(obs$value))
 }
 
-ek_get_fred <- function(meta, frequency = "month", vintage = NULL, refresh = FALSE) {
+ek_fred_check <- function() {
   if (!requireNamespace("fredr", quietly = TRUE)) {
     stop("Package 'fredr' is required for source = \"fred\".", call. = FALSE)
   }
@@ -318,16 +356,41 @@ ek_get_fred <- function(meta, frequency = "month", vintage = NULL, refresh = FAL
       call. = FALSE
     )
   }
+}
+
+ek_get_adapter_series <- function(adapter, meta, frequency = "month", vintage = NULL,
+                                  refresh = FALSE) {
+  if (!is.null(adapter$check)) adapter$check()
+  fetch_vintage <- if (adapter$supports_vintage) vintage else NULL
   series <- lapply(seq_len(nrow(meta)), function(i) {
     sid <- meta$source_id[i]
-    key <- paste0("fred_", sid, if (!is.null(vintage)) paste0("_v", format(vintage, "%Y%m%d")))
-    raw <- ek_cached(key, refresh = refresh, function() ek_fred_fetch(sid, vintage))
+    fetch <- function() ek_check_fetched(adapter$fetch(sid, fetch_vintage), sid)
+    raw <- if (adapter$cache) {
+      key <- paste0(adapter$name, "_", gsub("[^A-Za-z0-9_.-]", "_", sid),
+                    if (!is.null(fetch_vintage)) paste0("_v", format(fetch_vintage, "%Y%m%d")))
+      ek_cached(key, refresh = refresh, fetch)
+    } else {
+      fetch()
+    }
     min_obs <- if (meta$frequency[i] == "monthly" && frequency == "quarter") 3L else 1L
     agg <- ek_aggregate_series(raw, frequency, meta$aggregation[i], min_obs = min_obs)
     names(agg)[2] <- meta$id[i]
     agg
   })
-  Reduce(function(a, b) merge(a, b, by = "date", all = TRUE), series)
+  out <- Reduce(function(a, b) merge(a, b, by = "date", all = TRUE), series)
+  if (!is.null(vintage) && !adapter$supports_vintage) {
+    out <- ek_mask_release_lag(out, meta, frequency, vintage)
+  }
+  out
+}
+
+ek_check_fetched <- function(x, source_id) {
+  if (!is.data.frame(x) || !all(c("date", "value") %in% names(x)) ||
+        !inherits(x$date, "Date") || !is.numeric(x$value)) {
+    stop("Adapter returned invalid data for `", source_id,
+         "`: need a Date `date` and numeric `value` column.", call. = FALSE)
+  }
+  x[c("date", "value")]
 }
 
 #' Cache directory

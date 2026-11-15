@@ -21,6 +21,13 @@ to aggregate it to lower frequencies, its seasonal adjustment, a
 conservative publication lag, licensing notes and whether it is part of
 the bundled synthetic sample data.
 }
+\details{
+Additional registries, for example vendor series served by an adapter
+registered with \code{\link[=ek_register_source]{ek_register_source()}}, can be supplied as YAML files with
+the same layout. List their paths in the \code{econkit.registry} option or the
+\code{ECONKIT_REGISTRY} environment variable (separated by \verb{;}). Their ids must
+not duplicate the built-in registry.
+}
 \examples{
 cat <- ek_series_catalog()
 cat[cat$in_sample, c("id", "frequency", "aggregation")]

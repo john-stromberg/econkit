@@ -45,7 +45,8 @@ function() {
 
 #* Macro series in long format with provenance
 #* @param ids Comma-separated series ids; empty returns the sample series.
-#* @param source "sample" (default) or "fred" (requires FRED_API_KEY on the server).
+#* @param source "sample" (default), "fred" (requires FRED_API_KEY on the server) or a
+#*   source registered on the server with ek_register_source().
 #* @param start Optional start date (YYYY-MM-DD).
 #* @param end Optional end date (YYYY-MM-DD).
 #* @param frequency "month" (default) or "quarter".
@@ -58,7 +59,9 @@ function(res, ids = "", source = "sample", start = "", end = "", frequency = "mo
   id_list <- empty_null(ids)
   if (!is.null(id_list)) id_list <- trimws(strsplit(id_list, ",", fixed = TRUE)[[1]])
   tryCatch({
-    if (!source %in% c("sample", "fred")) stop("`source` must be \"sample\" or \"fred\".")
+    if (!source %in% ek_sources()$name) {
+      stop("Unknown `source`. Available: ", paste(ek_sources()$name, collapse = ", "), ".")
+    }
     if (!frequency %in% c("month", "quarter")) {
       stop("`frequency` must be \"month\" or \"quarter\".")
     }
