@@ -540,6 +540,131 @@ function(req, res) {
   }, error = function(error) ek_api_error(res, error))
 }
 
+#* Matched-tenor funds-transfer pricing under rate scenarios
+#* @serializer unboxedJSON list(na = "null")
+#* @get /v1/rates/ftp
+function(req, res) {
+  tryCatch({
+    projection <- ek_api_project_rate_curves(list(), character())
+    result <- ek_ftp_analysis(projection$curves)
+    run_id <- ek_api_record(
+      "matched_tenor_ftp", projection$inputs, result$summary,
+      list(source = projection$source, vintage = projection$vintage),
+      req, "GET /v1/rates/ftp",
+      metrics = c(
+        max_abs_annualized_contribution =
+          max(abs(result$summary$annualized_contribution)),
+        max_abs_cumulative_contribution =
+          max(abs(result$summary$cumulative_contribution))
+      )
+    )
+    ek_api_ftp_response(result, projection, run_id)
+  }, error = function(error) ek_api_error(res, error))
+}
+
+#* Calculate matched-tenor funds-transfer pricing under rate scenarios
+#* @param req JSON body: optional `portfolio`, `source`, `vintage`, `ar`,
+#*   `curve_lambda`, `scenarios` and BVAR options as for `/v1/scenarios/build`.
+#*   Portfolio positions require `position`, `side`, `balance`, `rate`, `tenor`
+#*   and `funding_spread_bps`.
+#* @parser json list(simplifyVector = FALSE)
+#* @serializer unboxedJSON list(na = "null")
+#* @post /v1/rates/ftp
+function(req, res) {
+  tryCatch({
+    own <- c("portfolio", "source", "vintage", "ar", "curve_lambda")
+    body <- ek_api_body(
+      req, c(own, "scenarios", "vars", "p", "lambda", "h", "draws", "level",
+             "seed", "version", "path")
+    )
+    projection <- ek_api_project_rate_curves(body, own)
+    portfolio <- if (is.null(body$portfolio)) {
+      NULL
+    } else {
+      ek_api_typed_rows(
+        body$portfolio,
+        c("position", "side", "balance", "rate", "tenor", "funding_spread_bps"),
+        c("position", "side", "tenor")
+      )
+    }
+    result <- ek_ftp_analysis(projection$curves, portfolio)
+    run_id <- ek_api_record(
+      "matched_tenor_ftp", projection$inputs, result$summary,
+      list(source = projection$source,
+           vintage = if (is.null(projection$vintage)) NULL else format(projection$vintage),
+           portfolio_source = result$portfolio_source),
+      req, "POST /v1/rates/ftp",
+      metrics = c(
+        max_abs_annualized_contribution =
+          max(abs(result$summary$annualized_contribution)),
+        max_abs_cumulative_contribution =
+          max(abs(result$summary$cumulative_contribution))
+      )
+    )
+    ek_api_ftp_response(result, projection, run_id)
+  }, error = function(error) ek_api_error(res, error))
+}
+
+#* Scenario-based DCF and DCM benchmark-rate inputs
+#* @serializer unboxedJSON list(na = "null")
+#* @get /v1/rates/pricing-inputs
+function(req, res) {
+  tryCatch({
+    projection <- ek_api_project_rate_curves(list(), character())
+    result <- ek_curve_pricing_inputs(projection$curves)
+    run_id <- ek_api_record(
+      "curve_pricing_inputs", projection$inputs, list(dcf = result$dcf, dcm = result$dcm),
+      list(source = projection$source, vintage = projection$vintage),
+      req, "GET /v1/rates/pricing-inputs"
+    )
+    ek_api_pricing_response(result, projection, run_id)
+  }, error = function(error) ek_api_error(res, error))
+}
+
+#* Build DCF and DCM benchmark-rate inputs under rate scenarios
+#* @param req JSON body: optional `dcf`, `dcm`, `source`, `vintage`, `ar`,
+#*   `curve_lambda`, `scenarios` and BVAR options as for `/v1/scenarios/build`.
+#*   DCF rows require `project`, `tenor`, `beta`, `equity_risk_premium_bps`,
+#*   `debt_spread_bps`, `equity_weight`, `debt_weight` and `tax_rate`. DCM rows
+#*   require `issue`, `tenor` and `spread_bps`.
+#* @parser json list(simplifyVector = FALSE)
+#* @serializer unboxedJSON list(na = "null")
+#* @post /v1/rates/pricing-inputs
+function(req, res) {
+  tryCatch({
+    own <- c("dcf", "dcm", "source", "vintage", "ar", "curve_lambda")
+    body <- ek_api_body(
+      req, c(own, "scenarios", "vars", "p", "lambda", "h", "draws", "level",
+             "seed", "version", "path")
+    )
+    projection <- ek_api_project_rate_curves(body, own)
+    dcf <- if (is.null(body$dcf)) {
+      NULL
+    } else {
+      ek_api_typed_rows(
+        body$dcf,
+        c("project", "tenor", "beta", "equity_risk_premium_bps", "debt_spread_bps",
+          "equity_weight", "debt_weight", "tax_rate"),
+        c("project", "tenor")
+      )
+    }
+    dcm <- if (is.null(body$dcm)) {
+      NULL
+    } else {
+      ek_api_typed_rows(body$dcm, c("issue", "tenor", "spread_bps"), c("issue", "tenor"))
+    }
+    result <- ek_curve_pricing_inputs(projection$curves, dcf = dcf, dcm = dcm)
+    run_id <- ek_api_record(
+      "curve_pricing_inputs", projection$inputs, list(dcf = result$dcf, dcm = result$dcm),
+      list(source = projection$source,
+           vintage = if (is.null(projection$vintage)) NULL else format(projection$vintage),
+           dcf_source = result$dcf_source, dcm_source = result$dcm_source),
+      req, "POST /v1/rates/pricing-inputs"
+    )
+    ek_api_pricing_response(result, projection, run_id)
+  }, error = function(error) ek_api_error(res, error))
+}
+
 #* Illustrative credit stress for a sample banking portfolio
 #* @get /v1/banking/credit-stress
 function() {
@@ -914,6 +1039,103 @@ ek_api_alm_response <- function(result, run_id) {
     paths = dates(result$paths),
     positions = dates(result$positions)
   )
+}
+
+ek_api_project_rate_curves <- function(body, own_fields) {
+  source <- ek_api_string(body$source, "source", "sample")
+  vintage <- if (is.null(body$vintage)) NULL else ek_api_date(body$vintage, "vintage")
+  curve_lambda <- ek_api_number(body$curve_lambda, "curve_lambda", 0.01, 5, 0.6)
+  ar <- ek_api_flag(body$ar, "ar", TRUE)
+  if (!is.null(body$scenarios) && is.null(body$vars)) {
+    body$vars <- list("FEDFUNDS", "UNRATE", "NFCI", "PCEPILFE", "INDPRO")
+  }
+  curve_data <- ek_get_series(
+    c("DGS3MO", "DGS2", "DGS5", "DGS10", "DGS30"),
+    source = source, vintage = vintage
+  )
+  macro <- ek_get_series(c("UNRATE", "NFCI"), source = source, vintage = vintage)
+  fit <- ek_yield_curve_satellite_fit(
+    curve_data, macro, ar = ar, lambda = curve_lambda
+  )
+  scenario <- ek_api_credit_scenarios(body, own_fields)
+  missing <- setdiff(fit$drivers, names(scenario$library$paths))
+  if (length(missing)) {
+    stop("Scenario paths must include curve drivers: ", paste(missing, collapse = ", "),
+         ".", call. = FALSE)
+  }
+  list(
+    curves = ek_yield_curve_project(fit, scenario$library),
+    inputs = list(curves = curve_data, macro = macro, scenario_inputs = scenario$inputs),
+    source = source,
+    vintage = vintage,
+    curve_lambda = curve_lambda,
+    ar = ar,
+    scenario_version = unique(scenario$library$paths$version),
+    scenario_synthetic = fit$synthetic || scenario$library$synthetic
+  )
+}
+
+ek_api_ftp_response <- function(result, projection, run_id) {
+  list(
+    meta = list(
+      model = "ek_ftp_analysis", model_version = result$model_version,
+      source = projection$source, vintage = projection$vintage,
+      scenario_version = I(projection$scenario_version),
+      scenario_synthetic = projection$scenario_synthetic,
+      portfolio_source = result$portfolio_source, run_id = run_id
+    ),
+    summary = result$summary,
+    paths = ek_api_alm_response_dates(result$paths),
+    positions = ek_api_alm_response_dates(result$positions)
+  )
+}
+
+ek_api_pricing_response <- function(result, projection, run_id) {
+  list(
+    meta = list(
+      model = "ek_curve_pricing_inputs", model_version = result$model_version,
+      source = projection$source, vintage = projection$vintage,
+      scenario_version = I(projection$scenario_version),
+      scenario_synthetic = projection$scenario_synthetic,
+      dcf_source = result$dcf_source, dcm_source = result$dcm_source,
+      run_id = run_id
+    ),
+    dcf = ek_api_alm_response_dates(result$dcf),
+    dcm = ek_api_alm_response_dates(result$dcm)
+  )
+}
+
+ek_api_alm_response_dates <- function(df) {
+  for (col in names(df)) {
+    if (inherits(df[[col]], "Date")) df[[col]] <- format(df[[col]])
+  }
+  df
+}
+
+ek_api_typed_rows <- function(rows, columns, text_columns) {
+  invalid <- function() {
+    stop("Request rows must be an array of complete objects.")
+  }
+  if (!is.list(rows) || !length(rows) || !is.null(names(rows))) invalid()
+  fields <- lapply(rows, function(row) {
+    if (!is.list(row) || is.null(names(row)) || anyDuplicated(names(row))) invalid()
+    names(row)
+  })
+  if (!all(vapply(fields, setequal, logical(1), columns))) invalid()
+  out <- lapply(columns, function(column) {
+    values <- lapply(rows, `[[`, column)
+    is_text <- column %in% text_columns
+    valid <- vapply(values, function(value) {
+      length(value) == 1L && (if (is_text) is.character(value) else is.numeric(value))
+    }, logical(1))
+    if (!all(valid)) {
+      stop("Request field `", column, "` must be ",
+           if (is_text) "a string" else "a number", " in every row.")
+    }
+    if (is_text) as.character(unlist(values)) else as.numeric(unlist(values))
+  })
+  names(out) <- columns
+  as.data.frame(out, stringsAsFactors = FALSE)
 }
 
 # Converts a JSON array of segment objects to a data frame. `segment` and any

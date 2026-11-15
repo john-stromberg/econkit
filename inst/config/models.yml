@@ -144,6 +144,34 @@ models:
         lower: 0.3
       - metric: rmse
         drift_z: 3
+  - id: matched_tenor_ftp
+    name: Matched-tenor funds-transfer pricing
+    function: ek_ftp_analysis
+    version: matched-tenor-ftp-v1
+    category: rates
+    risk_tier: high
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Illustrative Treasury-matched FTP contribution analysis; requires institution-specific funding spreads and policy.
+    last_review: ""
+    monitoring:
+      - metric: annualized_contribution
+        drift_z: 3
+  - id: curve_pricing_inputs
+    name: Scenario DCF and DCM rate inputs
+    function: ek_curve_pricing_inputs
+    version: curve-pricing-inputs-v1
+    category: rates
+    risk_tier: high
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Illustrative benchmark and spread inputs only; not enterprise valuation or bond pricing.
+    last_review: ""
+    monitoring:
+      - metric: wacc
+        drift_z: 3
+      - metric: indicative_yield
+        drift_z: 3
   - id: banking_alm_scenario_analysis
     name: Banking NII and economic-value sensitivity
     function: ek_alm_scenario_analysis
