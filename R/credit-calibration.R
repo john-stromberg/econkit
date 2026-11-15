@@ -5,7 +5,7 @@
 #' on macro drivers. On this complementary log-log scale a driver coefficient
 #' is the log-hazard sensitivity per unit of the driver, so the `UNRATE`
 #' coefficient can be used directly as `unemployment_beta` in
-#' [ek_credit_scenario_stress()].
+#' [ek_credit_scenario_stress()] and [ek_credit_lifetime_ecl()].
 #'
 #' @section Model card:
 #' **Purpose:** ground the macro sensitivities used in credit stress and

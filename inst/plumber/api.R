@@ -366,17 +366,9 @@ function(req, res) {
       ek_api_portfolio(body$portfolio, c("ead", "pd_12m", "lgd", "unemployment_beta"))
     }
     reference <- ek_api_string(body$reference_scenario, "reference_scenario", "base")
-    inputs <- list(portfolio = portfolio)
-    if (is.null(body$scenarios)) {
-      bvar_fields <- setdiff(names(body), c("portfolio", "reference_scenario"))
-      if (length(bvar_fields)) stop("Model options require `scenarios`.")
-      scenarios <- ek_scenario_library()
-      inputs$paths <- scenarios$paths
-    } else {
-      built <- ek_api_build_scenarios(body)
-      scenarios <- built$library
-      inputs$data <- built$spec$data
-    }
+    source <- ek_api_credit_scenarios(body, c("portfolio", "reference_scenario"))
+    scenarios <- source$library
+    inputs <- c(list(portfolio = portfolio), source$inputs)
     result <- ek_credit_scenario_stress(scenarios, portfolio, reference)
     result$scenario_version <- unique(scenarios$paths$version)
     run_id <- ek_api_record(
@@ -388,6 +380,67 @@ function(req, res) {
     )
     if (!is.na(run_id)) result$run_id <- run_id
     result
+  }, error = function(error) ek_api_error(res, error))
+}
+
+#* Lifetime expected credit losses (CECL or IFRS 9) for the synthetic sample portfolio
+#* @param standard "cecl" (default) or "ifrs9".
+#* @serializer unboxedJSON list(na = "null", null = "null")
+#* @get /v1/banking/ecl
+function(res, standard = "cecl") {
+  tryCatch({
+    if (!standard %in% c("cecl", "ifrs9")) stop("`standard` must be \"cecl\" or \"ifrs9\".")
+    ek_api_ecl_response(ek_credit_lifetime_ecl(standard = standard), FALSE, NA_character_)
+  }, error = function(error) ek_api_error(res, error))
+}
+
+#* Lifetime expected credit losses for a supplied or sample portfolio
+#* @param req JSON body: optional `portfolio` array (credit-stress fields plus `term_months`,
+#*   `rate` and optional `amortization` and `stage`), `weights` (object of scenario
+#*   probabilities), `standard`, `anchor`, `reversion_months`, `discount`,
+#*   `reference_scenario`, `include_paths` and `scenarios` with BVAR model options as for
+#*   /v1/scenarios/build.
+#* @parser json list(simplifyVector = FALSE)
+#* @serializer unboxedJSON list(na = "null", null = "null")
+#* @post /v1/banking/ecl
+function(req, res) {
+  tryCatch({
+    own <- c("portfolio", "weights", "standard", "anchor", "reversion_months", "discount",
+             "reference_scenario", "include_paths")
+    body <- ek_api_body(req, c(own, "scenarios", "vars", "source", "vintage", "p", "lambda",
+                               "h", "draws", "level", "seed", "version", "path"))
+    portfolio <- if (is.null(body$portfolio)) {
+      NULL
+    } else {
+      ek_api_portfolio(body$portfolio,
+                       c("ead", "pd_12m", "lgd", "unemployment_beta", "term_months", "rate"),
+                       optional = c("amortization", "stage"), text = "amortization")
+    }
+    weights <- if (is.null(body$weights)) NULL else ek_api_weight_object(body$weights)
+    standard <- ek_api_string(body$standard, "standard", "cecl")
+    if (!standard %in% c("cecl", "ifrs9")) stop("`standard` must be \"cecl\" or \"ifrs9\".")
+    settings <- list(
+      reference_scenario = ek_api_string(body$reference_scenario, "reference_scenario", "base"),
+      anchor = ek_api_number(body$anchor, "anchor", 0, 50),
+      reversion_months = ek_api_number(body$reversion_months, "reversion_months", 0, 120, 12L,
+                                       integer = TRUE),
+      discount = ek_api_flag(body$discount, "discount", NULL)
+    )
+    source <- ek_api_credit_scenarios(body, own)
+    result <- ek_credit_lifetime_ecl(
+      source$library, portfolio, weights = weights, standard = standard,
+      reference_scenario = settings$reference_scenario, anchor = settings$anchor,
+      reversion_months = settings$reversion_months, discount = settings$discount
+    )
+    rates <- if (is.null(result$weighted)) result$summary$ecl_rate else result$weighted$ecl_rate
+    run_id <- ek_api_record(
+      "credit_lifetime_ecl", c(list(portfolio = portfolio), source$inputs), result$summary,
+      c(settings, list(standard = standard, discount = result$discount,
+                       weights = body$weights, scenarios = body$scenarios,
+                       portfolio_source = result$portfolio_source)),
+      req, "POST /v1/banking/ecl", metrics = c(ecl_rate = max(rates))
+    )
+    ek_api_ecl_response(result, ek_api_flag(body$include_paths, "include_paths", FALSE), run_id)
   }, error = function(error) ek_api_error(res, error))
 }
 
@@ -571,6 +624,60 @@ ek_api_build_scenarios <- function(body) {
     path = ek_api_string(body$path, "path", "central")
   )
   list(spec = spec, fit = fit, library = library)
+}
+
+# Scenario library for banking routes: BVAR-built when `scenarios` is given,
+# otherwise the sample library (model options are then rejected).
+ek_api_credit_scenarios <- function(body, own_fields) {
+  if (is.null(body$scenarios)) {
+    if (length(setdiff(names(body), own_fields))) stop("Model options require `scenarios`.")
+    library <- ek_scenario_library()
+    return(list(library = library, inputs = list(paths = library$paths)))
+  }
+  built <- ek_api_build_scenarios(body)
+  list(library = built$library, inputs = list(data = built$spec$data))
+}
+
+ek_api_weight_object <- function(weights) {
+  if (!is.list(weights) || !length(weights) || is.null(names(weights))) {
+    stop("`weights` must be an object of scenario probabilities.")
+  }
+  vapply(weights, function(w) {
+    if (!is.numeric(w) || length(w) != 1L) stop("Each weight must be a number.")
+    as.numeric(w)
+  }, numeric(1))
+}
+
+ek_api_flag <- function(x, name, default) {
+  if (is.null(x)) return(default)
+  if (!is.logical(x) || length(x) != 1L || is.na(x)) stop("`", name, "` must be true or false.")
+  x
+}
+
+ek_api_ecl_response <- function(result, include_paths, run_id) {
+  dates <- function(df) {
+    if (is.null(df)) return(NULL)
+    for (col in names(df)) if (inherits(df[[col]], "Date")) df[[col]] <- format(df[[col]])
+    df
+  }
+  list(
+    meta = list(
+      model = "ek_credit_lifetime_ecl", model_version = result$model_version,
+      standard = result$standard, discount = result$discount,
+      reference_scenario = result$reference_scenario, anchor = result$anchor,
+      reversion_months = result$reversion_months,
+      scenario_version = I(unique(result$summary$version)),
+      scenario_synthetic = result$scenario_synthetic,
+      portfolio_source = result$portfolio_source,
+      weights = if (is.null(result$weights)) NULL else as.list(result$weights),
+      run_id = run_id
+    ),
+    summary = dates(result$summary),
+    segments = dates(result$segments),
+    weighted = result$weighted,
+    weighted_segments = result$weighted_segments,
+    paths = if (include_paths) dates(result$paths)
+  )
 }
 
 # Converts a JSON array of segment objects to a data frame. `segment` and any

@@ -160,6 +160,20 @@ models:
       - metric: unemployment_beta
         lower: 0
         drift_z: 3
+  - id: credit_lifetime_ecl
+    name: Scenario-weighted lifetime expected credit loss
+    function: ek_credit_lifetime_ecl
+    version: lifetime-hazard-ecl-v1
+    category: credit
+    risk_tier: high
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Illustrative CECL/IFRS 9-style ECL analysis; not an accounting allowance.
+    last_review: ""
+    monitoring:
+      - metric: ecl_rate
+        upper: 0.1
+        drift_z: 3
   - id: macro_signals
     name: Point-in-time macro signal snapshot
     function: ek_build_signals

@@ -29,7 +29,7 @@ regressing the log annual default hazard, \code{log(-log(1 - default_rate))},
 on macro drivers. On this complementary log-log scale a driver coefficient
 is the log-hazard sensitivity per unit of the driver, so the \code{UNRATE}
 coefficient can be used directly as \code{unemployment_beta} in
-\code{\link[=ek_credit_scenario_stress]{ek_credit_scenario_stress()}}.
+\code{\link[=ek_credit_scenario_stress]{ek_credit_scenario_stress()}} and \code{\link[=ek_credit_lifetime_ecl]{ek_credit_lifetime_ecl()}}.
 }
 \section{Model card}{
 

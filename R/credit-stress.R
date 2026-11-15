@@ -61,30 +61,10 @@ ek_credit_scenario_stress <- function(scenarios = ek_scenario_library(),
     ek_credit_input_error("`reference_scenario` must be one non-empty string.")
   }
 
-  paths <- scenarios$paths
-  path_key <- paste(paths$scenario_id, paths$version, sep = "\r")
   total_ead <- sum(portfolio$ead)
-  results <- lapply(unique(path_key), function(key) {
-    path <- paths[path_key == key, , drop = FALSE]
-    path <- path[order(path$step), , drop = FALSE]
-    reference <- paths[
-      paths$scenario_id == reference_scenario &
-        paths$version == path$version[1],
-      , drop = FALSE
-    ]
-    if (!nrow(reference)) {
-      ek_credit_input_error(
-        paste0("Reference scenario is missing for version `", path$version[1], "`.")
-      )
-    }
-    reference <- reference[order(reference$step), , drop = FALSE]
-    if (path$as_of[1] != reference$as_of[1] ||
-          path$data_vintage[1] != reference$data_vintage[1] ||
-          !identical(path$date, reference$date)) {
-      ek_credit_input_error(
-        "Each scenario and reference path must have aligned dates, as-of and vintage."
-      )
-    }
+  results <- lapply(ek_credit_scenario_pairs(scenarios, reference_scenario), function(pair) {
+    path <- pair$path
+    reference <- pair$reference
 
     unemployment_difference <- path$UNRATE - reference$UNRATE
     cumulative_pd <- vapply(seq_len(nrow(portfolio)), function(i) {
@@ -171,4 +151,35 @@ ek_validate_credit_portfolio <- function(portfolio) {
 
 ek_credit_input_error <- function(message) {
   stop(errorCondition(message, class = "econkit_credit_input_error"))
+}
+
+# Splits scenario paths by scenario and version, each ordered by step and
+# paired with its aligned reference path (NULL when `reference_scenario` is NULL).
+ek_credit_scenario_pairs <- function(scenarios, reference_scenario) {
+  paths <- scenarios$paths
+  path_key <- paste(paths$scenario_id, paths$version, sep = "\r")
+  lapply(unique(path_key), function(key) {
+    path <- paths[path_key == key, , drop = FALSE]
+    path <- path[order(path$step), , drop = FALSE]
+    if (is.null(reference_scenario)) return(list(path = path, reference = NULL))
+    reference <- paths[
+      paths$scenario_id == reference_scenario &
+        paths$version == path$version[1],
+      , drop = FALSE
+    ]
+    if (!nrow(reference)) {
+      ek_credit_input_error(
+        paste0("Reference scenario is missing for version `", path$version[1], "`.")
+      )
+    }
+    reference <- reference[order(reference$step), , drop = FALSE]
+    if (path$as_of[1] != reference$as_of[1] ||
+          path$data_vintage[1] != reference$data_vintage[1] ||
+          !identical(path$date, reference$date)) {
+      ek_credit_input_error(
+        "Each scenario and reference path must have aligned dates, as-of and vintage."
+      )
+    }
+    list(path = path, reference = reference)
+  })
 }
