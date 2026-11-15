@@ -63,3 +63,37 @@ test_that("curve fit validates maturities and yield data", {
   sparse$DGS5 <- NA_real_
   expect_error(ek_yield_curve_fit(sparse, tenors), "at least three finite yields")
 })
+
+test_that("curve factors project along macro scenarios", {
+  fit <- ek_yield_curve_satellite_fit()
+  scenarios <- ek_scenario_library()
+  projected <- ek_yield_curve_project(fit, scenarios)
+
+  expect_s3_class(fit, "ek_yield_curve_satellites")
+  expect_s3_class(projected, "ek_yield_curve_projection")
+  expect_true(fit$synthetic)
+  expect_equal(names(fit$models), c("level", "slope", "curvature"))
+  expect_equal(nrow(projected$factors), nrow(scenarios$paths))
+  expect_equal(nrow(projected$yields), nrow(scenarios$paths))
+  expect_true(all(is.finite(as.matrix(projected$yields[names(fit$tenors)]))))
+
+  base <- projected$factors[projected$factors$scenario_id == "base", ][1, ]
+  tau <- fit$tenors[["DGS10"]]
+  decay <- fit$lambda * tau
+  slope_load <- -expm1(-decay) / decay
+  curvature_load <- slope_load - exp(-decay)
+  expected <- base$level + base$slope * slope_load + base$curvature * curvature_load
+  expect_equal(projected$yields$DGS10[projected$yields$scenario_id == "base"][1],
+               expected)
+
+  no_provenance <- ek_get_series(names(fit$tenors))
+  attr(no_provenance, "provenance") <- NULL
+  expect_error(ek_yield_curve_satellite_fit(data = no_provenance), "Supply `macro`")
+  expect_error(ek_yield_curve_satellite_fit(drivers = "level"), "factor names")
+  bad_macro <- ek_get_series(c("UNRATE", "NFCI"))
+  bad_macro$UNRATE[1] <- Inf
+  expect_error(ek_yield_curve_satellite_fit(macro = bad_macro), "finite values or NA")
+  expect_error(ek_yield_curve_project(list(), scenarios), "must be an")
+  missing_driver <- scenarios$paths[setdiff(names(scenarios$paths), "NFCI")]
+  expect_error(ek_yield_curve_project(fit, missing_driver), "need columns")
+})

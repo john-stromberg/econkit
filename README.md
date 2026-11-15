@@ -90,7 +90,8 @@ Available endpoints are `/health`, `/v1/catalog`, `/v1/sources`, `/v1/series`,
 `/v1/positioning/playbook`,
 `/v1/saa/assumptions`, `/v1/scenarios`, and compute-only `POST` routes
 `/v1/saa/portfolio` and `/v1/saa/stress`, each with a JSON `weights` object,
-plus `/v1/forecast`, `/v1/scenarios/build` and `/v1/rates/curve`. Banking routes are
+plus `/v1/forecast`, `/v1/scenarios/build`, `/v1/rates/curve` and
+`POST /v1/rates/scenarios`. Banking routes are
 `/v1/banking/credit-stress` and `/v1/banking/ecl` (each `GET` and `POST`) and
 `/v1/banking/pd-sensitivity`. Governance routes are
 `/v1/models` and `/v1/runs`.
@@ -107,6 +108,11 @@ Nelson-Siegel curve to five Treasury maturities and returns level, slope,
 curvature, fit RMSE and fitted yields. Use `source=fred` for FRED/ALFRED data.
 The bundled curve is synthetic; FRED constant-maturity yields are par yields,
 not zero-coupon discount rates, so these fitted values are not for pricing.
+`POST /v1/rates/scenarios` fits macro satellites to the curve's level, slope
+and curvature, then projects factors and maturity yields along the sample
+scenario paths or BVAR-built scenarios. The BVAR `vars` must include `UNRATE`
+and `NFCI`; the request defaults to the sample library. The projections are
+illustrative scenario-implied par yields, not valuation curves.
 
 `POST /v1/forecast` fits a BVAR and returns forecast bands; `POST
 /v1/scenarios/build` turns named condition sets into a macro scenario library.
@@ -231,7 +237,8 @@ gateway or reverse proxy and keep keys out of source control.
 `GET /v1/models?id=` returns the model inventory and monitoring thresholds
 (404 for an unknown id). Set `ECONKIT_RUN_LOG` to a JSONL file path to record
 lineage for `/v1/nowcast`, `/v1/forecast`, `/v1/scenarios/build`, `GET
-/v1/rates/curve`, `POST /v1/banking/credit-stress` and `POST /v1/banking/ecl`: their
+/v1/rates/curve`, `POST /v1/rates/scenarios`, `POST /v1/banking/credit-stress`
+and `POST /v1/banking/ecl`: their
 responses then include a `run_id` (in `meta` except for credit stress), the optional `X-User` header is stored
 with the run, and `GET /v1/runs?model_id=&since=` lists recorded runs. Without
 `ECONKIT_RUN_LOG`, nothing is recorded and `/v1/runs` returns 400. The log is
@@ -315,11 +322,11 @@ Exports are written atomically, in long format, and their provenance includes a
 | Nowcasting and forecasting | `ek_nowcast()` (principal-component factor bridge for the current quarter, ragged edge), `ek_bvar()` and `ek_bvar_forecast()` (Minnesota-prior BVAR with bands and conditional scenarios) |
 | Multi-asset positioning | `ek_positioning_playbook()` (signals at month t, return observations at t+1), `ek_positioning_tilts()` (neutral, bounded heuristic), `ek_positioning_gap()` |
 | Strategic asset allocation | `ek_saa_assumptions()` (historical return/risk/covariance inputs), `ek_saa_portfolio()` (policy-mix summary; no optimizer) |
-| Rates and curves | `ek_yield_curve_fit()` (fixed-decay Nelson-Siegel level, slope, curvature and fitted yields; descriptive, not pricing inputs) |
+| Rates and curves | `ek_yield_curve_fit()` (fixed-decay Nelson-Siegel level, slope, curvature and fitted yields), `ek_yield_curve_satellite_fit()` and `ek_yield_curve_project()` (macro-scenario projections; descriptive par yields, not pricing inputs) |
 | Scenario analysis | `ek_scenario_library()` (versioned macro paths, with optional asset shocks), `ek_scenario_from_forecast()` (libraries from BVAR forecasts), `ek_satellite_fit()` and `ek_satellite_project()` (macro-to-business-variable models), `ek_validate_scenario_library()`, `ek_saa_scenario_stress()` |
 | Banking credit stress | `ek_credit_scenario_stress()` (scenario-specific segment default probabilities and expected credit losses), `ek_credit_pd_sensitivity()` (segment unemployment sensitivities calibrated on default-rate history), `ek_credit_lifetime_ecl()` (scenario-weighted CECL/IFRS 9-style lifetime ECL with reversion, amortization, discounting and stages) |
 | Model governance | `ek_model_registry()` (inventory, risk tiers, owners, review dates, monitoring thresholds), `ek_record_run()` and `ek_read_runs()` (JSONL run lineage with input/output hashes and provenance), `ek_monitor_metrics()` (threshold breaches and drift) |
-| API | Plumber endpoints for series, Parquet/CSV export, sources, release calendar, nowcast, BVAR forecasts and scenario building, signals, positioning, SAA, credit stress, lifetime ECL, model inventory and run lineage, with optional API keys |
+| API | Plumber endpoints for series, Parquet/CSV export, sources, release calendar, nowcast, BVAR forecasts and scenario building, yield curve fitting/projections, signals, positioning, SAA, credit stress, lifetime ECL, model inventory and run lineage, with optional API keys |
 | PM signal service | `ek_build_signals()` (delayed labels), local RDS storage via `ek_store_signals()` / `ek_read_signals()`, or shared DBI/PostgreSQL storage via `ek_init_signal_store_db()`, `ek_store_signals_db()` and `ek_read_signals_db()` |
 | Reporting | `ek_render_macro_dashboard()` and the template in `inst/templates/macro-dashboard.qmd` |
 | Pipelines | `pipelines/macro/_targets.R` (`targets::tar_make()`) |
@@ -328,7 +335,7 @@ The positioning playbook is descriptive, not a return forecast. Tilt scores are 
 
 Both signal stores preserve the immutable `(as_of, signal, model_version)` key and as-of reads. The RDS implementation remains a single-writer local option; PostgreSQL is the shared-service option. `data_vintage` records the latest observation date. Signals are built from current data; `ek_get_series(vintage = )` now provides ALFRED vintages for FRED, but signal backtests do not yet rebuild each snapshot from its vintage. The `override`, `override_reason` and `user` fields are reserved for downstream approval workflows.
 
-Model cards (purpose, assumptions, limitations and monitoring) are in the help pages for each model, for example `?ek_recession_model`, `?ek_markov_switching`, `?ek_positioning_tilts`, `?ek_nowcast`, `?ek_bvar`, `?ek_satellite_fit`, `?ek_yield_curve_fit`, `?ek_credit_pd_sensitivity` and `?ek_credit_lifetime_ecl`. BVAR conditional forecasts use reduced-form shocks, so they are consistent scenarios rather than identified policy experiments, and the BVAR does not impose a lower bound on rates unless the policy rate is conditioned. Scenario libraries built from forecasts are macro-only (no asset shocks), so they feed credit stress and satellites but not SAA stress.
+Model cards (purpose, assumptions, limitations and monitoring) are in the help pages for each model, for example `?ek_recession_model`, `?ek_markov_switching`, `?ek_positioning_tilts`, `?ek_nowcast`, `?ek_bvar`, `?ek_satellite_fit`, `?ek_yield_curve_fit`, `?ek_yield_curve_satellite_fit`, `?ek_credit_pd_sensitivity` and `?ek_credit_lifetime_ecl`. BVAR conditional forecasts use reduced-form shocks, so they are consistent scenarios rather than identified policy experiments, and the BVAR does not impose a lower bound on rates unless the policy rate is conditioned. Scenario libraries built from forecasts are macro-only (no asset shocks), so they feed credit stress and satellites but not SAA stress.
 
 ### Model governance
 
@@ -397,7 +404,7 @@ loan tapes or deal data.
 | C. Core economics service | **A** series registry, vintages, provenance, adapters, release calendar, Parquet/CSV export; **B** transforms, Taylor rule, surprise index, nowcast, BVAR with conditional forecasts, scenario builder, satellites; **C** API contract and keys; **D** model inventory, run lineage, monitoring | — | Done | Public; vendor adapters are interfaces only |
 | 2. Service platform | Done: Plumber API, optional PostgreSQL store, Parquet/CSV export, API keys. Next: Excel/CSV feed, async jobs and webhooks, alerting on monitoring breaches, maker/checker overrides on top of run lineage | Core C, D | Partial | Not data-dependent |
 | 3. Scenario library | Sample and BVAR-built versioned scenarios, vintages, SAA stress | Core B | Done | Public; Vendor for asset shocks |
-| 4. Rates and curves | First slice: synthetic multi-tenor data and Nelson-Siegel factor/fit API. Next: macro satellites and rate-path scenarios, NII/EVE, FTP, deposit betas, DCF and DCM pricing inputs | BVAR, satellites, scenarios | Partial | Public FRED/ALFRED yields; vendor for spreads and balance sheets |
+| 4. Rates and curves | Done: synthetic multi-tenor data, Nelson-Siegel fit, macro satellites and scenario-implied curve API. Next: NII/EVE, FTP, deposit betas, DCF and DCM pricing inputs | BVAR, satellites, scenarios | Partial | Public FRED/ALFRED yields; vendor for spreads and balance sheets |
 | 5. Credit and stress | Done: PD sensitivity calibration, scenario credit stress, scenario-weighted CECL/IFRS 9-style lifetime ECL. Next: LGD/EAD satellites, rating migration, concentration, economic capital and RWA, ICAAP-style capital, RAROC, CRE stress, leveraged-finance covenant stress, securitization collateral | Satellites, scenarios | Partial | Vendor (loan tapes, default and recovery history) |
 | 6. Monitoring and signals | Early-warning watchlist, CRE monitor, DCM/ECM market-window signal, tail-risk overlays | Signal store, monitoring | Planned | Public and Vendor |
 | 7. Strategic and commercial | Done: SAA. Next: factor exposures, VaR/ES with backtests, scenario P&L, factor rotation, manager due diligence, fee and pipeline forecasts, loan pricing, client reporting | All engines | Partial | Vendor (returns, holdings, deal pipeline) |

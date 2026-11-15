@@ -366,6 +366,69 @@ function(req, res, source = "sample", start = "", end = "", vintage = "",
   }, error = function(error) ek_api_error(res, error))
 }
 
+#* Project Treasury yield curves under macro scenarios
+#* @param req JSON body: optional `source`, `vintage`, `ar`, `curve_lambda`,
+#*   `scenarios` and BVAR options as for `/v1/scenarios/build`. BVAR `vars`
+#*   must include `UNRATE` and `NFCI`.
+#* @parser json list(simplifyVector = FALSE)
+#* @serializer unboxedJSON list(na = "null")
+#* @post /v1/rates/scenarios
+function(req, res) {
+  tryCatch({
+    own <- c("source", "vintage", "ar", "curve_lambda")
+    body <- ek_api_body(req, c(own, "scenarios", "vars", "p", "lambda", "h", "draws",
+                               "level", "seed", "version", "path"))
+    source <- ek_api_string(body$source, "source", "sample")
+    vintage <- if (is.null(body$vintage)) NULL else ek_api_date(body$vintage, "vintage")
+    curve_lambda <- ek_api_number(body$curve_lambda, "curve_lambda", 0.01, 5, 0.6)
+    ar <- ek_api_flag(body$ar, "ar", TRUE)
+    drivers <- c("UNRATE", "NFCI")
+    if (!is.null(body$scenarios) && is.null(body$vars)) {
+      body$vars <- list("FEDFUNDS", "UNRATE", "NFCI", "PCEPILFE", "INDPRO")
+    }
+    curve_data <- ek_get_series(
+      c("DGS3MO", "DGS2", "DGS5", "DGS10", "DGS30"),
+      source = source, vintage = vintage
+    )
+    macro <- ek_get_series(drivers, source = source, vintage = vintage)
+    fit <- ek_yield_curve_satellite_fit(curve_data, macro, ar = ar, lambda = curve_lambda)
+    scenario <- ek_api_credit_scenarios(body, own)
+    paths <- scenario$library$paths
+    missing <- setdiff(fit$drivers, names(paths))
+    if (length(missing)) {
+      stop("Scenario paths must include curve drivers: ", paste(missing, collapse = ", "),
+           ".", call. = FALSE)
+    }
+    projection <- ek_yield_curve_project(fit, scenario$library)
+    factors <- projection$factors
+    yields <- projection$yields
+    factors$date <- format(factors$date)
+    yields$date <- format(yields$date)
+    r_squared <- mean(vapply(fit$models, `[[`, numeric(1), "r_squared"))
+    rmse <- mean(vapply(fit$models, `[[`, numeric(1), "sigma"))
+    run_id <- ek_api_record(
+      "yield_curve_satellite",
+      list(curves = curve_data, macro = macro, scenario_inputs = scenario$inputs),
+      projection$yields,
+      list(source = source, vintage = if (is.null(vintage)) NULL else format(vintage),
+           drivers = fit$drivers, ar = ar, curve_lambda = curve_lambda,
+           scenario_ids = unique(paths$scenario_id), version = paths$version[1]),
+      req, "POST /v1/rates/scenarios", metrics = c(r_squared = r_squared, rmse = rmse)
+    )
+    list(
+      meta = list(model = "ek_yield_curve_satellite_fit",
+                  model_version = fit$model_version, source = source,
+                  synthetic = fit$synthetic || scenario$library$synthetic,
+                  data_vintage = fit$data_vintage, scenario_version = paths$version[1],
+                  scenarios = I(unique(paths$scenario_id)), drivers = I(fit$drivers),
+                  tenors = fit$tenors, lambda = fit$lambda, ar = fit$ar,
+                  r_squared = r_squared, rmse = rmse, run_id = run_id),
+      factors = factors,
+      yields = yields
+    )
+  }, error = function(error) ek_api_error(res, error))
+}
+
 #* Illustrative credit stress for a sample banking portfolio
 #* @get /v1/banking/credit-stress
 function() {

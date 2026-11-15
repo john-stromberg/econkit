@@ -129,6 +129,21 @@ models:
       - metric: rmse
         upper: 1
         drift_z: 3
+  - id: yield_curve_satellite
+    name: Macro-linked yield-curve factors
+    function: ek_yield_curve_satellite_fit
+    version: curve-satellite-v1
+    category: rates
+    risk_tier: high
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Illustrative scenario-implied par-yield paths; not pricing or valuation curves.
+    last_review: ""
+    monitoring:
+      - metric: r_squared
+        lower: 0.3
+      - metric: rmse
+        drift_z: 3
   - id: satellite_ols
     name: Macro satellite regression
     function: ek_satellite_fit

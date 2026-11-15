@@ -111,3 +111,127 @@ ek_yield_curve_fit <- function(
     model_version = "nelson-siegel-v1"
   ), class = "ek_yield_curve")
 }
+
+#' Fit macro satellites for yield-curve factors
+#'
+#' Fits separate [ek_satellite_fit()] models for the Nelson-Siegel level,
+#' slope and curvature factors. By default, the curve and driver history are
+#' fetched from the same econkit source and vintage.
+#'
+#' @param data Wide Treasury yield data accepted by [ek_yield_curve_fit()].
+#' @param macro Wide macro driver data with a `date` column. If omitted, the
+#'   same source and vintage as `data` are used; custom `data` therefore
+#'   requires an explicit `macro` data frame.
+#' @param drivers Names of macro drivers available in `macro` and scenario
+#'   paths.
+#' @param ar Include each factor's lag in its satellite model.
+#' @param tenors Named maturities in years, as in [ek_yield_curve_fit()].
+#' @param lambda Positive Nelson-Siegel decay parameter.
+#' @return An `ek_yield_curve_satellites` object containing the factor models,
+#'   tenors, drivers, source metadata and model version.
+#' @export
+#' @examples
+#' fit <- ek_yield_curve_satellite_fit()
+#' ek_yield_curve_project(fit, ek_scenario_library())
+ek_yield_curve_satellite_fit <- function(
+  data = NULL,
+  macro = NULL,
+  drivers = c("UNRATE", "NFCI"),
+  ar = TRUE,
+  tenors = c(DGS3MO = 0.25, DGS2 = 2, DGS5 = 5, DGS10 = 10, DGS30 = 30),
+  lambda = 0.6) {
+  if (!is.character(drivers) || !length(drivers) || anyNA(drivers) ||
+        any(!nzchar(drivers)) || anyDuplicated(drivers)) {
+    stop("`drivers` must be distinct, non-empty column names.", call. = FALSE)
+  }
+  if (any(drivers %in% c("date", "level", "slope", "curvature"))) {
+    stop("`drivers` cannot use the date or Nelson-Siegel factor names.", call. = FALSE)
+  }
+  if (!is.logical(ar) || length(ar) != 1L || is.na(ar)) {
+    stop("`ar` must be TRUE or FALSE.", call. = FALSE)
+  }
+  if (is.null(data)) data <- ek_get_series(names(tenors))
+  curve <- ek_yield_curve_fit(data, tenors = tenors, lambda = lambda)
+  if (is.null(macro)) {
+    provenance <- attr(data, "provenance")
+    if (is.null(provenance$source)) {
+      stop("Supply `macro` when custom `data` has no econkit provenance.", call. = FALSE)
+    }
+    vintage <- provenance$vintage
+    if (is.null(vintage) || is.na(vintage) || !nzchar(vintage)) vintage <- NULL
+    macro <- ek_get_series(drivers, source = provenance$source, vintage = vintage)
+  }
+  ek_check_wide(macro, drivers)
+  if (anyNA(macro$date) || anyDuplicated(macro$date)) {
+    stop("`macro$date` must contain unique, non-missing dates.", call. = FALSE)
+  }
+  if (!all(vapply(macro[drivers], is.numeric, logical(1)))) {
+    stop("Macro drivers must be numeric.", call. = FALSE)
+  }
+  if (any(vapply(macro[drivers], function(x) any(!is.na(x) & !is.finite(x)), logical(1)))) {
+    stop("Macro drivers must contain finite values or NA.", call. = FALSE)
+  }
+  macro_provenance <- attr(macro, "provenance")
+  macro <- macro[order(macro$date), c("date", drivers), drop = FALSE]
+  factors <- curve$factors[c("date", "level", "slope", "curvature")]
+  training <- merge(factors, macro, by = "date", all = FALSE)
+  targets <- c("level", "slope", "curvature")
+  models <- stats::setNames(lapply(targets, function(target) {
+    ek_satellite_fit(training, target, drivers, ar = ar)
+  }), targets)
+  structure(list(
+    models = models,
+    tenors = curve$tenors,
+    lambda = curve$lambda,
+    drivers = drivers,
+    ar = ar,
+    source = curve$source,
+    synthetic = curve$synthetic || isTRUE(macro_provenance$synthetic),
+    data_vintage = curve$data_vintage,
+    model_version = "curve-satellite-v1"
+  ), class = "ek_yield_curve_satellites")
+}
+
+#' Project yield curves along macro scenarios
+#'
+#' Projects the fitted Nelson-Siegel factors with their macro satellite models
+#' and reconstructs the fitted yield at each configured maturity. These are
+#' scenario-implied par-yield paths, not discount curves or valuation inputs.
+#'
+#' @param fit An `ek_yield_curve_satellites` object.
+#' @param scenarios An `ek_scenario_library` or a data frame of paths with the
+#'   satellite drivers.
+#' @return An `ek_yield_curve_projection` with factor paths and wide yield
+#'   paths, each keyed by scenario, version, step and date.
+#' @export
+#' @examples
+#' fit <- ek_yield_curve_satellite_fit()
+#' projected <- ek_yield_curve_project(fit, ek_scenario_library())
+#' head(projected$yields)
+ek_yield_curve_project <- function(fit, scenarios) {
+  if (!inherits(fit, "ek_yield_curve_satellites")) {
+    stop("`fit` must be an ek_yield_curve_satellites object.", call. = FALSE)
+  }
+  targets <- c("level", "slope", "curvature")
+  factor_paths <- lapply(targets, function(target) {
+    ek_satellite_project(fit$models[[target]], scenarios)
+  })
+  keys <- c("scenario_id", "version", "step", "date")
+  factors <- Reduce(function(x, y) merge(x, y, by = keys, sort = FALSE), factor_paths)
+  factors <- factors[order(factors$scenario_id, factors$version, factors$step), ]
+  decay <- fit$lambda * fit$tenors
+  slope_load <- -expm1(-decay) / decay
+  curvature_load <- slope_load - exp(-decay)
+  design <- cbind(level = 1, slope = slope_load, curvature = curvature_load)
+  yields <- as.matrix(factors[targets]) %*% t(design)
+  colnames(yields) <- names(fit$tenors)
+  yield_paths <- data.frame(factors[keys], yields, check.names = FALSE)
+  structure(list(
+    factors = factors,
+    yields = yield_paths,
+    tenors = fit$tenors,
+    lambda = fit$lambda,
+    model_version = fit$model_version,
+    synthetic = fit$synthetic
+  ), class = "ek_yield_curve_projection")
+}
