@@ -70,9 +70,13 @@ plumber::pr("inst/plumber/api.R") |>
   plumber::pr_run(host = "127.0.0.1", port = 8000)
 ```
 
-Available endpoints are `/health`, `/v1/signals`, `/v1/positioning/playbook`,
+Available endpoints are `/health`, `/v1/catalog`, `/v1/series`, `/v1/signals`,
+`/v1/positioning/playbook`,
 `/v1/saa/assumptions`, `/v1/scenarios`, and compute-only `POST` routes
 `/v1/saa/portfolio` and `/v1/saa/stress`, each with a JSON `weights` object.
+`GET /v1/series?ids=UNRATE,PAYEMS&frequency=quarter&vintage=2020-06-30`
+returns `{meta, data}`: provenance metadata and long-format observations.
+`source=fred` works only when the server has `FRED_API_KEY` set.
 `GET /v1/banking/credit-stress` runs a synthetic sample portfolio, while
 `POST /v1/banking/credit-stress` accepts a JSON `portfolio` array and applies
 the same synthetic scenarios without persisting the portfolio:
@@ -125,15 +129,32 @@ DBI::dbDisconnect(conn)
 |---|---|---|
 | `"sample"` (default) | Bundled `macro_monthly` | **Synthetic**, calibrated to US dynamics. For demos, tests and CI only. Rebuild it with `data-raw/macro_monthly.R`. |
 | Asset returns | Bundled `asset_returns` | **Synthetic and deliberately regime-conditioned**, for workflow tests only; not market history, performance evidence or suitable for investment decisions. Rebuild with `data-raw/asset_returns.R`. |
-| `"fred"` | `ek_get_series(source = "fred")` | Requires `fredr` and `FRED_API_KEY` in `~/.Renviron` (never commit it). Downloads are cached in `ek_cache_dir()` and aggregated to monthly. |
+| `"fred"` | `ek_get_series(source = "fred")` | Requires `fredr` and `FRED_API_KEY` in `~/.Renviron` (never commit it). Downloads are cached in `ek_cache_dir()` and aggregated to monthly or quarterly frequency. |
 
-The series catalog is in [`inst/config/series.yml`](inst/config/series.yml).
+The series registry is in [`inst/config/series.yml`](inst/config/series.yml).
+Each entry records the provider id, native frequency, aggregation rule
+(`mean`, `last`, `sum` or `max`), seasonal adjustment, a conservative
+publication lag, licensing notes and whether the series is in the sample data.
+`ek_get_series()` without `ids` returns the sample series; credit spreads, bank
+lending and delinquency series, GDP, house prices and VIX are available from
+FRED. Check provider terms before redistributing licensed series.
+
+```r
+q <- ek_get_series(c("UNRATE", "PAYEMS"), frequency = "quarter", vintage = "2020-06-30")
+ek_provenance(q)   # source, vintage method, retrieval time, series metadata
+ek_series_long(q)  # one row per date and series, for BI tools and feeds
+```
+
+With `source = "fred"`, `vintage` queries ALFRED, so values are those
+published on that date, including later revisions. The synthetic sample has no
+vintages: it approximates point-in-time data by masking each value until the
+period end plus the series' release lag, which does not model revisions.
 
 ## What's included (v0.1)
 
 | Area | Functions |
 |---|---|
-| Data layer | `ek_get_series()`, `ek_series_catalog()`, `ek_align_frequency()`, `ek_floor_date()`, `ek_transform()`, `ek_lag()`, `ek_cache_dir()` |
+| Data layer | `ek_get_series()`, `ek_series_catalog()`, `ek_provenance()`, `ek_series_long()`, `ek_align_frequency()`, `ek_floor_date()`, `ek_transform()`, `ek_lag()`, `ek_cache_dir()` |
 | Recession risk | `ek_recession_model()`, `predict()`, `ek_backtest_recession()`, `ek_classification_metrics()`, `ek_sahm_rule()` |
 | Cycle and regimes | `ek_output_gap()` (Hamilton or HP), `ek_growth_inflation_regime()`, `ek_markov_switching()` |
 | Multi-asset positioning | `ek_positioning_playbook()` (signals at month t, return observations at t+1), `ek_positioning_tilts()` (neutral, bounded heuristic), `ek_positioning_gap()` |
@@ -147,7 +168,7 @@ The series catalog is in [`inst/config/series.yml`](inst/config/series.yml).
 
 The positioning playbook is descriptive, not a return forecast. Tilt scores are shrunk, volatility-scaled historical differences subject to active-weight and one-way-turnover caps; they are not an optimizer or a recommendation to trade. SAA return and risk inputs are historical estimates, not forward-looking capital-market assumptions. Review sample size and eligibility alongside outputs. The sample returns are simulated with regime-dependent means to exercise the workflow and cannot support investment conclusions.
 
-Both signal stores preserve the immutable `(as_of, signal, model_version)` key and as-of reads. The RDS implementation remains a single-writer local option; PostgreSQL is the shared-service option. `data_vintage` records the latest observation date, but the current FRED loader does not retrieve ALFRED vintages; revised history is therefore not a point-in-time backtest. The `override`, `override_reason` and `user` fields are reserved for downstream approval workflows.
+Both signal stores preserve the immutable `(as_of, signal, model_version)` key and as-of reads. The RDS implementation remains a single-writer local option; PostgreSQL is the shared-service option. `data_vintage` records the latest observation date. Signals are built from current data; `ek_get_series(vintage = )` now provides ALFRED vintages for FRED, but signal backtests do not yet rebuild each snapshot from its vintage. The `override`, `override_reason` and `user` fields are reserved for downstream approval workflows.
 
 Model cards (purpose, assumptions, limitations and monitoring) are in the help pages for each model, for example `?ek_recession_model`, `?ek_markov_switching` and `?ek_positioning_tilts`.
 

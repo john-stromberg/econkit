@@ -29,6 +29,66 @@ function(as_of = "") {
   list(source = "synthetic_sample", signals = signals)
 }
 
+#* Series registry
+#* @serializer unboxedJSON list(na = "null")
+#* @get /v1/catalog
+function() {
+  catalog <- ek_series_catalog()
+  list(
+    meta = list(
+      n_series = nrow(catalog),
+      fred_available = nzchar(Sys.getenv("FRED_API_KEY"))
+    ),
+    data = catalog
+  )
+}
+
+#* Macro series in long format with provenance
+#* @param ids Comma-separated series ids; empty returns the sample series.
+#* @param source "sample" (default) or "fred" (requires FRED_API_KEY on the server).
+#* @param start Optional start date (YYYY-MM-DD).
+#* @param end Optional end date (YYYY-MM-DD).
+#* @param frequency "month" (default) or "quarter".
+#* @param vintage Optional as-of date for point-in-time data (YYYY-MM-DD).
+#* @serializer unboxedJSON list(na = "null")
+#* @get /v1/series
+function(res, ids = "", source = "sample", start = "", end = "", frequency = "month",
+         vintage = "") {
+  empty_null <- function(x) if (!nzchar(x)) NULL else x
+  id_list <- empty_null(ids)
+  if (!is.null(id_list)) id_list <- trimws(strsplit(id_list, ",", fixed = TRUE)[[1]])
+  tryCatch({
+    if (!source %in% c("sample", "fred")) stop("`source` must be \"sample\" or \"fred\".")
+    if (!frequency %in% c("month", "quarter")) {
+      stop("`frequency` must be \"month\" or \"quarter\".")
+    }
+    x <- ek_get_series(
+      ids = id_list, source = source, start = empty_null(start), end = empty_null(end),
+      frequency = frequency, vintage = empty_null(vintage)
+    )
+    prov <- ek_provenance(x)
+    data <- ek_series_long(x)
+    data$date <- format(data$date)
+    list(
+      meta = list(
+        source = prov$source,
+        synthetic = prov$synthetic,
+        frequency = prov$frequency,
+        vintage = prov$vintage,
+        vintage_method = prov$vintage_method,
+        retrieved_at = prov$retrieved_at,
+        econkit_version = prov$econkit_version,
+        series = prov$series,
+        n_obs = nrow(data)
+      ),
+      data = data
+    )
+  }, error = function(error) {
+    res$status <- 400L
+    list(error = conditionMessage(error))
+  })
+}
+
 #* Regime-conditioned asset-return playbook
 #* @param min_obs Minimum observations for eligibility.
 #* @get /v1/positioning/playbook

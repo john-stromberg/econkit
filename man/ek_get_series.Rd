@@ -9,32 +9,64 @@ ek_get_series(
   source = c("sample", "fred"),
   start = NULL,
   end = NULL,
-  refresh = FALSE
+  refresh = FALSE,
+  frequency = c("month", "quarter"),
+  vintage = NULL
 )
 }
 \arguments{
-\item{ids}{Character vector of series ids. \code{NULL} returns all catalog series.}
+\item{ids}{Character vector of series ids from \code{\link[=ek_series_catalog]{ek_series_catalog()}}.
+\code{NULL} returns the series included in the sample data (\code{in_sample}).}
 
 \item{source}{\code{"sample"} or \code{"fred"}.}
 
-\item{start, end}{Optional start and end dates (inclusive).}
+\item{start, end}{Optional start and end dates (inclusive), compared with
+the period start date.}
 
 \item{refresh}{For \code{source = "fred"}, ignore the cache and re-download.}
+
+\item{frequency}{Output frequency: \code{"month"} (default) or \code{"quarter"}.}
+
+\item{vintage}{Optional as-of date for point-in-time data (see below).}
 }
 \value{
-A data frame with a \code{date} column (first day of month) and one
-numeric column per series. The attribute \code{source} records the source.
+A data frame with a \code{date} column (period start) and one numeric
+column per series. The \code{provenance} attribute (see \code{\link[=ek_provenance]{ek_provenance()}})
+records the source, vintage, method and series metadata; the \code{source}
+attribute is kept for backward compatibility.
 }
 \description{
-Unified access to macro series as a wide monthly data frame. Use
-\code{source = "sample"} (default) for the bundled synthetic \link{macro_monthly}
-dataset, which works offline. Use \code{source = "fred"} for live FRED data,
-which requires the \code{fredr} package and a \code{FRED_API_KEY} environment
-variable (put it in \code{.Renviron}; never commit it). FRED downloads are
-cached on disk (see \code{\link[=ek_cache_dir]{ek_cache_dir()}}) and aggregated to monthly frequency
-with \code{\link[=ek_align_frequency]{ek_align_frequency()}}.
+Unified access to macro series as a wide data frame at monthly or
+quarterly frequency. Use \code{source = "sample"} (default) for the bundled
+synthetic \link{macro_monthly} dataset, which works offline. Use
+\code{source = "fred"} for live FRED data, which requires the \code{fredr} package
+and a \code{FRED_API_KEY} environment variable (put it in \code{.Renviron}; never
+commit it). FRED downloads are cached on disk (see \code{\link[=ek_cache_dir]{ek_cache_dir()}}).
 }
+\details{
+Each series is aggregated to the output frequency with the rule recorded
+in \code{\link[=ek_series_catalog]{ek_series_catalog()}} (for example \code{mean} for rates, \code{last} for
+payrolls and \code{max} for the recession indicator). Quarterly series
+requested at monthly frequency appear in the first month of each quarter,
+with the other months \code{NA}. Quarterly values built from monthly data
+require all three months; incomplete quarters are \code{NA}.
+}
+\section{Point-in-time data}{
+
+\code{vintage} returns the data as it would have been known on that date.
+For \code{source = "fred"} this queries ALFRED real-time vintages, so it
+reflects both publication timing and later revisions. For
+\code{source = "sample"} the synthetic data has no vintages, so values are
+masked when the end of the period, plus the series' \code{release_lag_days},
+falls after the vintage date. This release-lag approximation does not
+model revisions; whole periods are dropped rather than partially
+aggregated.
+}
+
 \examples{
 x <- ek_get_series(c("UNRATE", "T10Y3M"), start = "2000-01-01")
 head(x)
+q <- ek_get_series(c("UNRATE", "PAYEMS"), frequency = "quarter", vintage = "2020-06-30")
+tail(q)
+ek_provenance(q)$vintage_method
 }

@@ -7,13 +7,21 @@
 ek_series_catalog()
 }
 \value{
-A data frame with columns \code{id}, \code{title}, \code{units}, \code{frequency},
-\code{category} and \code{transform}.
+A data frame with one row per series and columns \code{id}, \code{title},
+\code{units}, \code{frequency} (\code{daily}, \code{weekly}, \code{monthly} or \code{quarterly}),
+\code{category}, \code{transform}, \code{source}, \code{source_id}, \code{aggregation} (\code{mean},
+\code{last}, \code{sum} or \code{max}), \code{seasonal_adjustment}, \code{release_lag_days}
+(integer days after the end of the native observation period),
+\code{license} and \code{in_sample} (logical).
 }
 \description{
-Returns the catalog of supported macro series, read from
-\code{inst/config/series.yml}.
+Returns the series registry, read from \code{inst/config/series.yml}. The
+registry records each series' provider, native frequency, the rule used
+to aggregate it to lower frequencies, its seasonal adjustment, a
+conservative publication lag, licensing notes and whether it is part of
+the bundled synthetic sample data.
 }
 \examples{
-ek_series_catalog()
+cat <- ek_series_catalog()
+cat[cat$in_sample, c("id", "frequency", "aggregation")]
 }

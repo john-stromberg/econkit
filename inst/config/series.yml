@@ -1,6 +1,18 @@
-# Series catalog for the econkit data layer.
-# id: FRED series id (also the column name returned by ek_get_series()).
-# transform: default transformation suggested for analysis (see ek_transform()).
+# Series registry for the econkit data layer.
+#
+# id:                  econkit series id; also the column name returned by ek_get_series().
+# source:              provider adapter ("fred"). FRED series also support ALFRED vintages.
+# source_id:           identifier at the provider.
+# frequency:           native frequency: daily, weekly, monthly or quarterly.
+# aggregation:         rule for converting to a lower frequency: mean, last, sum or max.
+# seasonal_adjustment: SA, NSA or "not applicable".
+# release_lag_days:    conservative days after the end of the native observation period
+#                      before a value is published. Used only by the release-lag
+#                      approximation of point-in-time data; it does not model revisions.
+# license:             redistribution notes. Check provider terms before redistributing.
+# in_sample:           whether the bundled synthetic macro_monthly dataset contains the
+#                      series. ek_get_series(ids = NULL) returns these series.
+# transform:           suggested default transformation (see ek_transform()).
 series:
   - id: USREC
     title: NBER-based recession indicator
@@ -8,63 +20,270 @@ series:
     frequency: monthly
     category: cycle
     transform: level
+    source: fred
+    source_id: USREC
+    aggregation: max
+    seasonal_adjustment: not applicable
+    release_lag_days: 365
+    license: public (FRED/NBER); cite source
+    in_sample: true
   - id: T10Y3M
     title: 10-year Treasury minus 3-month Treasury bill
     units: percentage points
     frequency: daily
     category: rates
     transform: level
+    source: fred
+    source_id: T10Y3M
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: public (Federal Reserve Board)
+    in_sample: true
   - id: DGS10
     title: 10-year Treasury constant maturity yield
     units: percent
     frequency: daily
     category: rates
     transform: level
+    source: fred
+    source_id: DGS10
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: public (Federal Reserve Board)
+    in_sample: true
   - id: TB3MS
     title: 3-month Treasury bill secondary market rate
     units: percent
     frequency: monthly
     category: rates
     transform: level
+    source: fred
+    source_id: TB3MS
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: public (Federal Reserve Board)
+    in_sample: true
   - id: FEDFUNDS
     title: Effective federal funds rate
     units: percent
     frequency: monthly
     category: rates
     transform: level
+    source: fred
+    source_id: FEDFUNDS
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: public (Federal Reserve Bank of New York)
+    in_sample: true
   - id: UNRATE
     title: Unemployment rate
     units: percent
     frequency: monthly
     category: labor
     transform: level
+    source: fred
+    source_id: UNRATE
+    aggregation: mean
+    seasonal_adjustment: SA
+    release_lag_days: 10
+    license: public (BLS)
+    in_sample: true
   - id: PAYEMS
     title: Total nonfarm payrolls
     units: thousands of persons
     frequency: monthly
     category: labor
     transform: yoy
+    source: fred
+    source_id: PAYEMS
+    aggregation: last
+    seasonal_adjustment: SA
+    release_lag_days: 10
+    license: public (BLS)
+    in_sample: true
   - id: INDPRO
     title: Industrial production index
     units: index
     frequency: monthly
     category: activity
     transform: yoy
+    source: fred
+    source_id: INDPRO
+    aggregation: mean
+    seasonal_adjustment: SA
+    release_lag_days: 20
+    license: public (Federal Reserve Board)
+    in_sample: true
   - id: CPIAUCSL
     title: Consumer price index, all urban consumers
     units: index
     frequency: monthly
     category: prices
     transform: yoy
+    source: fred
+    source_id: CPIAUCSL
+    aggregation: mean
+    seasonal_adjustment: SA
+    release_lag_days: 20
+    license: public (BLS)
+    in_sample: true
   - id: PCEPILFE
     title: Core PCE price index
     units: index
     frequency: monthly
     category: prices
     transform: yoy
+    source: fred
+    source_id: PCEPILFE
+    aggregation: mean
+    seasonal_adjustment: SA
+    release_lag_days: 35
+    license: public (BEA)
+    in_sample: true
   - id: NFCI
     title: Chicago Fed National Financial Conditions Index
     units: index (positive = tighter than average)
     frequency: weekly
     category: financial
     transform: level
+    source: fred
+    source_id: NFCI
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 7
+    license: public (Federal Reserve Bank of Chicago); cite source
+    in_sample: true
+  - id: DGS2
+    title: 2-year Treasury constant maturity yield
+    units: percent
+    frequency: daily
+    category: rates
+    transform: level
+    source: fred
+    source_id: DGS2
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: public (Federal Reserve Board)
+    in_sample: false
+  - id: MORTGAGE30US
+    title: 30-year fixed-rate mortgage average
+    units: percent
+    frequency: weekly
+    category: rates
+    transform: level
+    source: fred
+    source_id: MORTGAGE30US
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: Freddie Mac via FRED; check terms before redistribution
+    in_sample: false
+  - id: AAA10Y
+    title: Moody's seasoned Aaa corporate yield minus 10-year Treasury
+    units: percentage points
+    frequency: daily
+    category: credit
+    transform: level
+    source: fred
+    source_id: AAA10Y
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: Moody's via FRED; check terms before redistribution
+    in_sample: false
+  - id: BAA10Y
+    title: Moody's seasoned Baa corporate yield minus 10-year Treasury
+    units: percentage points
+    frequency: daily
+    category: credit
+    transform: level
+    source: fred
+    source_id: BAA10Y
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: Moody's via FRED; check terms before redistribution
+    in_sample: false
+  - id: VIXCLS
+    title: Cboe Volatility Index (VIX)
+    units: index
+    frequency: daily
+    category: markets
+    transform: level
+    source: fred
+    source_id: VIXCLS
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: Cboe via FRED; check terms before redistribution
+    in_sample: false
+  - id: GDPC1
+    title: Real gross domestic product
+    units: billions of chained dollars, SAAR
+    frequency: quarterly
+    category: activity
+    transform: annualized
+    source: fred
+    source_id: GDPC1
+    aggregation: mean
+    seasonal_adjustment: SA
+    release_lag_days: 35
+    license: public (BEA)
+    in_sample: false
+  - id: CSUSHPISA
+    title: S&P CoreLogic Case-Shiller US national home price index
+    units: index
+    frequency: monthly
+    category: housing
+    transform: yoy
+    source: fred
+    source_id: CSUSHPISA
+    aggregation: mean
+    seasonal_adjustment: SA
+    release_lag_days: 65
+    license: S&P Dow Jones Indices via FRED; check terms before redistribution
+    in_sample: false
+  - id: DRTSCILM
+    title: Net share of banks tightening C&I standards, large and middle-market firms
+    units: percent
+    frequency: quarterly
+    category: lending
+    transform: level
+    source: fred
+    source_id: DRTSCILM
+    aggregation: mean
+    seasonal_adjustment: NSA
+    release_lag_days: 1
+    license: public (Federal Reserve Board SLOOS)
+    in_sample: false
+  - id: DRBLACBS
+    title: Delinquency rate on business loans, all commercial banks
+    units: percent
+    frequency: quarterly
+    category: lending
+    transform: level
+    source: fred
+    source_id: DRBLACBS
+    aggregation: mean
+    seasonal_adjustment: SA
+    release_lag_days: 60
+    license: public (Federal Reserve Board)
+    in_sample: false
+  - id: DRCRELEXFACBS
+    title: Delinquency rate on commercial real estate loans excluding farmland, all banks
+    units: percent
+    frequency: quarterly
+    category: lending
+    transform: level
+    source: fred
+    source_id: DRCRELEXFACBS
+    aggregation: mean
+    seasonal_adjustment: SA
+    release_lag_days: 60
+    license: public (Federal Reserve Board)
+    in_sample: false
