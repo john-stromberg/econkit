@@ -233,29 +233,18 @@ function(req, res) {
   tryCatch({
     body <- ek_api_body(req, c("vars", "source", "vintage", "p", "lambda", "h", "draws",
                                "level", "seed", "version", "path", "scenarios"))
-    spec <- ek_api_bvar_spec(body)
-    scenarios <- if (is.null(body$scenarios)) list(base = list()) else body$scenarios
-    if (!is.list(scenarios) || !length(scenarios) || is.null(names(scenarios)) ||
-          length(scenarios) > 10) {
-      stop("`scenarios` must be an object of 1 to 10 named condition objects.")
-    }
-    fit <- ek_bvar(spec$data, p = spec$p, lambda = spec$lambda)
-    forecasts <- lapply(scenarios, function(conditions) {
-      ek_bvar_forecast(fit, h = spec$h, conditions = ek_api_conditions(conditions),
-                       draws = spec$draws, level = spec$level, seed = spec$seed)
-    })
-    lib <- ek_scenario_from_forecast(
-      forecasts, version = ek_api_string(body$version, "version", "bvar-v1"),
-      path = ek_api_string(body$path, "path", "central")
-    )
+    if (is.null(body$scenarios)) body$scenarios <- list(base = list())
+    built <- ek_api_build_scenarios(body)
+    spec <- built$spec
+    lib <- built$library
     paths <- lib$paths
     for (col in c("as_of", "data_vintage", "date")) paths[[col]] <- format(paths[[col]])
     params <- c(ek_api_bvar_params(spec, body),
                 list(version = paths$version[1], scenarios = body$scenarios))
     run_id <- ek_api_record("bvar_minnesota", spec$data, lib$paths, params, req,
                             "POST /v1/scenarios/build")
-    list(meta = c(ek_api_bvar_meta(fit, spec),
-                  list(version = paths$version[1], scenarios = names(forecasts),
+    list(meta = c(ek_api_bvar_meta(built$fit, spec),
+                  list(version = paths$version[1], scenarios = unique(paths$scenario_id),
                        h = spec$h, synthetic = lib$synthetic, asset_shocks = FALSE,
                        run_id = run_id)),
          paths = paths)
@@ -344,18 +333,62 @@ function() {
   ek_credit_scenario_stress()
 }
 
-#* Apply sample macro scenarios to a supplied credit portfolio
-#* @param req JSON request body containing a `portfolio` array of segments.
+#* Segment default-hazard sensitivities calibrated on the synthetic sample history
+#* @param drivers Comma-separated macro drivers (default UNRATE).
+#* @serializer unboxedJSON list(na = "null")
+#* @get /v1/banking/pd-sensitivity
+function(res, drivers = "UNRATE") {
+  tryCatch({
+    sens <- ek_credit_pd_sensitivity(drivers = ek_api_ids(drivers))
+    sens$fit$start <- format(sens$fit$start)
+    sens$fit$end <- format(sens$fit$end)
+    list(meta = list(model = "ek_credit_pd_sensitivity", drivers = I(sens$drivers),
+                     scale = "log annual default hazard", synthetic = sens$synthetic),
+         coefficients = sens$coefficients, fit = sens$fit)
+  }, error = function(error) ek_api_error(res, error))
+}
+
+#* Apply macro scenarios to a supplied or sample credit portfolio
+#* @param req JSON body: optional `portfolio` array of segments, `reference_scenario`
+#*   (default "base") and `scenarios`, BVAR condition sets as for /v1/scenarios/build
+#*   (with the same model options; `vars` must include UNRATE). Without `scenarios`,
+#*   the sample scenario library is used.
 #* @parser json list(simplifyVector = FALSE)
 #* @post /v1/banking/credit-stress
 function(req, res) {
-  tryCatch(
-    ek_credit_scenario_stress(portfolio = ek_api_credit_portfolio(req)),
-    econkit_credit_input_error = function(error) {
-      res$status <- 400L
-      list(error = conditionMessage(error))
+  tryCatch({
+    body <- ek_api_body(req, c("portfolio", "reference_scenario", "scenarios", "vars",
+                               "source", "vintage", "p", "lambda", "h", "draws", "level",
+                               "seed", "version", "path"))
+    portfolio <- if (is.null(body$portfolio)) {
+      NULL
+    } else {
+      ek_api_portfolio(body$portfolio, c("ead", "pd_12m", "lgd", "unemployment_beta"))
     }
-  )
+    reference <- ek_api_string(body$reference_scenario, "reference_scenario", "base")
+    inputs <- list(portfolio = portfolio)
+    if (is.null(body$scenarios)) {
+      bvar_fields <- setdiff(names(body), c("portfolio", "reference_scenario"))
+      if (length(bvar_fields)) stop("Model options require `scenarios`.")
+      scenarios <- ek_scenario_library()
+      inputs$paths <- scenarios$paths
+    } else {
+      built <- ek_api_build_scenarios(body)
+      scenarios <- built$library
+      inputs$data <- built$spec$data
+    }
+    result <- ek_credit_scenario_stress(scenarios, portfolio, reference)
+    result$scenario_version <- unique(scenarios$paths$version)
+    run_id <- ek_api_record(
+      "credit_scenario_stress", inputs, result$summary,
+      list(reference_scenario = reference, scenario_version = result$scenario_version,
+           scenarios = body$scenarios, portfolio_source = result$portfolio_source),
+      req, "POST /v1/banking/credit-stress",
+      metrics = c(loss_rate = max(result$summary$loss_rate))
+    )
+    if (!is.na(run_id)) result$run_id <- run_id
+    result
+  }, error = function(error) ek_api_error(res, error))
 }
 
 #* Apply a scenario set to a strategic policy mix
@@ -521,37 +554,53 @@ ek_api_conditions <- function(conditions) {
   })
 }
 
-ek_api_credit_portfolio <- function(req) {
-  body <- req$body
-  required <- c("segment", "ead", "pd_12m", "lgd", "unemployment_beta")
-  invalid <- function() {
-    stop(errorCondition(
-      "Request JSON must contain a portfolio array with one complete segment per object.",
-      class = "econkit_credit_input_error"
-    ))
+ek_api_build_scenarios <- function(body) {
+  scenarios <- body$scenarios
+  if (!is.list(scenarios) || !length(scenarios) || is.null(names(scenarios)) ||
+        length(scenarios) > 10) {
+    stop("`scenarios` must be an object of 1 to 10 named condition objects.")
   }
-  if (!is.list(body) || !identical(names(body), "portfolio")) invalid()
-  portfolio <- body$portfolio
-  if (!is.list(portfolio) || !length(portfolio) || !is.null(names(portfolio))) {
-    invalid()
-  }
-  valid <- vapply(portfolio, function(row) {
-    if (!is.list(row) || is.null(names(row)) ||
-          anyDuplicated(names(row)) || !setequal(names(row), required)) {
-      return(FALSE)
-    }
-    is.character(row$segment) && length(row$segment) == 1L &&
-      all(vapply(required[-1], function(column) {
-        is.numeric(row[[column]]) && length(row[[column]]) == 1L
-      }, logical(1)))
-  }, logical(1))
-  if (!all(valid)) invalid()
-  data.frame(
-    segment = vapply(portfolio, `[[`, character(1), "segment"),
-    ead = vapply(portfolio, `[[`, numeric(1), "ead"),
-    pd_12m = vapply(portfolio, `[[`, numeric(1), "pd_12m"),
-    lgd = vapply(portfolio, `[[`, numeric(1), "lgd"),
-    unemployment_beta = vapply(portfolio, `[[`, numeric(1), "unemployment_beta"),
-    stringsAsFactors = FALSE
+  spec <- ek_api_bvar_spec(body)
+  fit <- ek_bvar(spec$data, p = spec$p, lambda = spec$lambda)
+  forecasts <- lapply(scenarios, function(conditions) {
+    ek_bvar_forecast(fit, h = spec$h, conditions = ek_api_conditions(conditions),
+                     draws = spec$draws, level = spec$level, seed = spec$seed)
+  })
+  library <- ek_scenario_from_forecast(
+    forecasts, version = ek_api_string(body$version, "version", "bvar-v1"),
+    path = ek_api_string(body$path, "path", "central")
   )
+  list(spec = spec, fit = fit, library = library)
+}
+
+# Converts a JSON array of segment objects to a data frame. `segment` and any
+# `text` columns are strings; other columns are numbers. Optional columns
+# must appear in every object or in none.
+ek_api_portfolio <- function(portfolio, numeric, optional = NULL, text = NULL) {
+  required <- c("segment", numeric)
+  invalid <- function() {
+    stop("`portfolio` must be an array with one complete segment object per element.")
+  }
+  if (!is.list(portfolio) || !length(portfolio) || !is.null(names(portfolio))) invalid()
+  fields <- lapply(portfolio, function(row) {
+    if (!is.list(row) || is.null(names(row)) || anyDuplicated(names(row))) invalid()
+    names(row)
+  })
+  present <- intersect(optional, fields[[1]])
+  columns <- c(required, present)
+  if (!all(vapply(fields, setequal, logical(1), columns))) invalid()
+  out <- lapply(columns, function(column) {
+    values <- lapply(portfolio, `[[`, column)
+    is_text <- column == "segment" || column %in% text
+    ok <- vapply(values, function(v) {
+      length(v) == 1L && (if (is_text) is.character(v) else is.numeric(v))
+    }, logical(1))
+    if (!all(ok)) {
+      stop("Portfolio field `", column, "` must be ", if (is_text) "a string" else "a number",
+           " in every segment.")
+    }
+    if (is_text) as.character(unlist(values)) else as.numeric(unlist(values))
+  })
+  names(out) <- columns
+  as.data.frame(out, stringsAsFactors = FALSE)
 }

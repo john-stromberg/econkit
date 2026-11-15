@@ -144,6 +144,22 @@ models:
       - metric: loss_rate
         upper: 0.1
         drift_z: 3
+  - id: credit_pd_sensitivity
+    name: Segment default-hazard sensitivity calibration
+    function: ek_credit_pd_sensitivity
+    version: "1.0.0"
+    category: credit
+    risk_tier: high
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Calibrate segment unemployment sensitivities for credit stress and lifetime losses.
+    last_review: ""
+    monitoring:
+      - metric: r_squared
+        lower: 0.3
+      - metric: unemployment_beta
+        lower: 0
+        drift_z: 3
   - id: macro_signals
     name: Point-in-time macro signal snapshot
     function: ek_build_signals

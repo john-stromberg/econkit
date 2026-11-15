@@ -41,3 +41,23 @@
 #'   `us_dollar` and `cash`). Returns are decimal monthly total returns.
 #' @source Simulated; see `data-raw/asset_returns.R`.
 "asset_returns"
+
+#' Synthetic quarterly default rates by credit segment
+#'
+#' Simulated annualized default rates for three illustrative segments
+#' (`commercial_real_estate`, `commercial_industrial` and `consumer`), aligned
+#' to quarterly averages of the synthetic unemployment rate in
+#' [macro_monthly]. Each segment's default hazard rises with unemployment
+#' relative to its long-run mean (log-hazard sensitivities of 0.20, 0.15 and
+#' 0.25 per percentage point) with persistent noise. Use it to demonstrate
+#' and test [ek_credit_pd_sensitivity()]; these are not bank, regulatory or
+#' industry loss data. Rebuild with `data-raw/credit_default_rates.R`.
+#'
+#' @format A long data frame with 672 rows and 3 columns:
+#' \describe{
+#'   \item{date}{First day of the quarter (1970 Q1 to 2025 Q4).}
+#'   \item{segment}{Segment name.}
+#'   \item{default_rate}{Annualized default rate, decimal.}
+#' }
+#' @source Simulated; see `data-raw/credit_default_rates.R`.
+"credit_default_rates"
