@@ -88,7 +88,8 @@ Available endpoints are `/health`, `/v1/catalog`, `/v1/sources`, `/v1/series`,
 `/v1/positioning/playbook`,
 `/v1/saa/assumptions`, `/v1/scenarios`, and compute-only `POST` routes
 `/v1/saa/portfolio` and `/v1/saa/stress`, each with a JSON `weights` object,
-plus `/v1/forecast` and `/v1/scenarios/build`.
+plus `/v1/forecast` and `/v1/scenarios/build`. Governance routes are
+`/v1/models` and `/v1/runs`.
 `GET /v1/series?ids=UNRATE,PAYEMS&frequency=quarter&vintage=2020-06-30`
 returns `{meta, data}`: provenance metadata and long-format observations.
 `GET /v1/series/export` takes the same parameters plus `format=parquet|csv`
@@ -142,7 +143,17 @@ Set `ECONKIT_API_KEYS` (comma-separated) to require an `X-API-Key` header on
 every route except `/health` and the API docs; `/health` reports whether keys
 are enforced. Keys are read on each request, so they can be rotated by
 updating the environment. The API serves plain HTTP: terminate TLS at a
-gateway or reverse proxy and keep keys out of source control. PostgreSQL is optional for shared
+gateway or reverse proxy and keep keys out of source control.
+
+`GET /v1/models?id=` returns the model inventory and monitoring thresholds
+(404 for an unknown id). Set `ECONKIT_RUN_LOG` to a JSONL file path to record
+lineage for `/v1/nowcast`, `/v1/forecast` and `/v1/scenarios/build`: their
+responses then include `meta.run_id`, the optional `X-User` header is stored
+with the run, and `GET /v1/runs?model_id=&since=` lists recorded runs. Without
+`ECONKIT_RUN_LOG`, nothing is recorded and `/v1/runs` returns 400. The log is
+append-only from a single API process; use one log per process.
+
+PostgreSQL is optional for shared
 signal storage. Without database settings, `/v1/signals` uses sample data. If
 any required PostgreSQL setting is present, the API connects to the configured
 store and reports connection or schema errors rather than silently falling
@@ -221,7 +232,8 @@ Exports are written atomically, in long format, and their provenance includes a
 | Strategic asset allocation | `ek_saa_assumptions()` (historical return/risk/covariance inputs), `ek_saa_portfolio()` (policy-mix summary; no optimizer) |
 | Scenario analysis | `ek_scenario_library()` (versioned macro paths, with optional asset shocks), `ek_scenario_from_forecast()` (libraries from BVAR forecasts), `ek_satellite_fit()` and `ek_satellite_project()` (macro-to-business-variable models), `ek_validate_scenario_library()`, `ek_saa_scenario_stress()` |
 | Banking credit stress | `ek_credit_scenario_stress()` (scenario-specific segment default probabilities and expected credit losses) |
-| API | Plumber endpoints for series, Parquet/CSV export, sources, release calendar, nowcast, BVAR forecasts and scenario building, signals, positioning, SAA and credit stress, with optional API keys |
+| Model governance | `ek_model_registry()` (inventory, risk tiers, owners, review dates, monitoring thresholds), `ek_record_run()` and `ek_read_runs()` (JSONL run lineage with input/output hashes and provenance), `ek_monitor_metrics()` (threshold breaches and drift) |
+| API | Plumber endpoints for series, Parquet/CSV export, sources, release calendar, nowcast, BVAR forecasts and scenario building, signals, positioning, SAA, credit stress, model inventory and run lineage, with optional API keys |
 | PM signal service | `ek_build_signals()` (delayed labels), local RDS storage via `ek_store_signals()` / `ek_read_signals()`, or shared DBI/PostgreSQL storage via `ek_init_signal_store_db()`, `ek_store_signals_db()` and `ek_read_signals_db()` |
 | Reporting | `ek_render_macro_dashboard()` and the template in `inst/templates/macro-dashboard.qmd` |
 | Pipelines | `pipelines/macro/_targets.R` (`targets::tar_make()`) |
@@ -231,6 +243,36 @@ The positioning playbook is descriptive, not a return forecast. Tilt scores are 
 Both signal stores preserve the immutable `(as_of, signal, model_version)` key and as-of reads. The RDS implementation remains a single-writer local option; PostgreSQL is the shared-service option. `data_vintage` records the latest observation date. Signals are built from current data; `ek_get_series(vintage = )` now provides ALFRED vintages for FRED, but signal backtests do not yet rebuild each snapshot from its vintage. The `override`, `override_reason` and `user` fields are reserved for downstream approval workflows.
 
 Model cards (purpose, assumptions, limitations and monitoring) are in the help pages for each model, for example `?ek_recession_model`, `?ek_markov_switching`, `?ek_positioning_tilts`, `?ek_nowcast`, `?ek_bvar` and `?ek_satellite_fit`. BVAR conditional forecasts use reduced-form shocks, so they are consistent scenarios rather than identified policy experiments, and the BVAR does not impose a lower bound on rates unless the policy rate is conditioned. Scenario libraries built from forecasts are macro-only (no asset shocks), so they feed credit stress and satellites but not SAA stress.
+
+### Model governance
+
+The model inventory in [`inst/config/models.yml`](inst/config/models.yml)
+records each model's entry point, version, risk tier, validation status, owner,
+intended use, last review date and monitoring thresholds. Add or override
+models (by `id`) with YAML files in the same layout, listed in
+`options(econkit.model_registry = )` or `ECONKIT_MODEL_REGISTRY`.
+
+```r
+ek_model_registry()                    # inventory
+ek_model_registry(monitoring = TRUE)   # metric thresholds
+log <- "governance/runs.jsonl"         # or options(econkit.run_log = ) / ECONKIT_RUN_LOG
+data <- ek_get_series(c("FEDFUNDS", "UNRATE"))
+fc <- ek_bvar_forecast(ek_bvar(data, p = 2), h = 6, seed = 1)
+ek_record_run("bvar_minnesota", inputs = data, outputs = fc$summary,
+              params = list(p = 2, h = 6), metrics = c(rmse = 0.4), log = log)
+ek_monitor_metrics(ek_read_runs(log))  # breach, drift or ok per model and metric
+```
+
+Each run record stores a run id, UTC timestamp, model and package versions,
+user, MD5 hashes of inputs and outputs, a data-provenance summary (source,
+vintage, synthetic flag), parameters, metrics and a note. Hashes ignore
+retrieval times, so re-fetching identical data gives the same hash; they
+identify changes within one installation and are not comparable across R
+versions. The log is append-only JSONL for a single writer; it is an audit aid,
+not a substitute for an institution's model risk inventory or approval process.
+`ek_monitor_metrics()` flags values outside the registry thresholds and
+z-score drift against each metric's recent history (default: previous 12
+values, at least 3).
 
 ## Development
 
@@ -255,7 +297,7 @@ CI (GitHub Actions) runs `R CMD check` on Ubuntu and Windows, lintr, and a cover
 | Core A. Data foundation | Series registry, point-in-time vintages, provenance, source adapters, Parquet/CSV export, release calendar | Done |
 | Core B. Analysis core | Indicator transforms, Taylor rule, surprise index, factor nowcast, BVAR with conditional forecasts, scenario builder and satellite models | Done |
 | Core C. Service contract | Export, sources, calendar, nowcast, forecast and scenario-build API routes; API keys | Done |
-| Core D. Governance | Model registry, run lineage and monitoring | In progress |
+| Core D. Governance | Model registry, run lineage and monitoring | Done |
 | 4. Asset management portfolio analytics | Factor exposures, VaR/ES with backtests, scenario P&L | Planned |
 | 5. Commercial banking portfolio analytics | Concentration, credit portfolio model and economic capital, RWA, migration and vintages, RAROC/FTP pricing, NII/EVE, CRE stress | Planned |
 | 6. Forecasting and nowcasting | BVAR, conditional forecasts and factor nowcast delivered in Core B; next: vintage-based forecast evaluation | Initial slice done |

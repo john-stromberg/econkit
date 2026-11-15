@@ -174,7 +174,7 @@ function(res, ids = "", from = "", to = "", frequency = "month") {
 #* @param level Prediction-interval coverage.
 #* @serializer unboxedJSON list(na = "null")
 #* @get /v1/nowcast
-function(res, vintage = "", n_factors = "1", level = "0.8") {
+function(req, res, vintage = "", n_factors = "1", level = "0.8") {
   tryCatch({
     vintage <- if (nzchar(vintage)) ek_api_date(vintage, "vintage") else NULL
     fit <- ek_nowcast(vintage = vintage,
@@ -182,11 +182,17 @@ function(res, vintage = "", n_factors = "1", level = "0.8") {
                       level = ek_api_number(level, "level", 0.5, 0.99))
     nowcast <- fit$nowcast
     nowcast$quarter <- format(nowcast$quarter)
+    run_id <- ek_api_record(
+      "nowcast_factor_bridge", fit$factors, fit$nowcast,
+      list(vintage = if (is.null(vintage)) NULL else format(vintage),
+           n_factors = ncol(fit$loadings), level = fit$level),
+      req, "GET /v1/nowcast", metrics = c(r_squared = fit$r_squared)
+    )
     list(
       meta = list(target = fit$target, indicators = fit$indicators,
                   vintage = if (is.null(vintage)) NA_character_ else format(vintage),
                   r_squared = fit$r_squared, level = fit$level, synthetic = TRUE,
-                  model = "ek_nowcast"),
+                  model = "ek_nowcast", run_id = run_id),
       data = nowcast
     )
   }, error = function(error) ek_api_error(res, error))
@@ -209,6 +215,8 @@ function(req, res) {
     summary <- fc$summary
     summary$date <- format(summary$date)
     meta <- c(ek_api_bvar_meta(fit, spec), list(level = fc$level, h = spec$h, draws = spec$draws))
+    meta$run_id <- ek_api_record("bvar_minnesota", spec$data, fc$summary,
+                                 ek_api_bvar_params(spec, body), req, "POST /v1/forecast")
     list(meta = meta, data = summary)
   }, error = function(error) ek_api_error(res, error))
 }
@@ -242,10 +250,50 @@ function(req, res) {
     )
     paths <- lib$paths
     for (col in c("as_of", "data_vintage", "date")) paths[[col]] <- format(paths[[col]])
+    params <- c(ek_api_bvar_params(spec, body),
+                list(version = paths$version[1], scenarios = body$scenarios))
+    run_id <- ek_api_record("bvar_minnesota", spec$data, lib$paths, params, req,
+                            "POST /v1/scenarios/build")
     list(meta = c(ek_api_bvar_meta(fit, spec),
                   list(version = paths$version[1], scenarios = names(forecasts),
-                       h = spec$h, synthetic = lib$synthetic, asset_shocks = FALSE)),
+                       h = spec$h, synthetic = lib$synthetic, asset_shocks = FALSE,
+                       run_id = run_id)),
          paths = paths)
+  }, error = function(error) ek_api_error(res, error))
+}
+
+#* Model inventory with monitoring thresholds
+#* @param id Optional model id.
+#* @serializer unboxedJSON list(na = "null")
+#* @get /v1/models
+function(res, id = "") {
+  models <- ek_model_registry()
+  monitoring <- ek_model_registry(monitoring = TRUE)
+  models$last_review <- format(models$last_review)
+  if (nzchar(id)) {
+    if (!id %in% models$id) {
+      res$status <- 404L
+      return(list(error = paste0("Unknown model `", id, "`.")))
+    }
+    models <- models[models$id == id, , drop = FALSE]
+    monitoring <- monitoring[monitoring$model_id == id, , drop = FALSE]
+  }
+  list(meta = list(n_models = nrow(models)), data = models, monitoring = monitoring)
+}
+
+#* Model-run lineage log (requires ECONKIT_RUN_LOG on the server)
+#* @param model_id Optional model id.
+#* @param since Optional date (YYYY-MM-DD); runs at or after it.
+#* @serializer unboxedJSON list(na = "null")
+#* @get /v1/runs
+function(res, model_id = "", since = "") {
+  tryCatch({
+    log <- Sys.getenv("ECONKIT_RUN_LOG")
+    if (!nzchar(log)) stop("Run logging is not enabled on this server (ECONKIT_RUN_LOG).")
+    runs <- ek_read_runs(log, model_id = if (nzchar(model_id)) model_id,
+                         since = if (nzchar(since)) ek_api_date(since, "since"))
+    runs$timestamp <- format(runs$timestamp, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC")
+    list(meta = list(n_runs = nrow(runs)), data = runs)
   }, error = function(error) ek_api_error(res, error))
 }
 
@@ -436,6 +484,22 @@ ek_api_bvar_meta <- function(fit, spec) {
        lambda = fit$lambda, n_obs = fit$n_obs, last_date = format(fit$last_date),
        source = prov$source, synthetic = prov$synthetic, vintage = prov$vintage,
        vintage_method = prov$vintage_method, seed = spec$seed)
+}
+
+ek_api_bvar_params <- function(spec, body) {
+  list(vars = names(spec$data)[-1], source = spec$source,
+       vintage = if (is.null(spec$vintage)) NULL else format(spec$vintage), p = spec$p,
+       lambda = spec$lambda, h = spec$h, draws = spec$draws, level = spec$level,
+       seed = spec$seed, conditions = body$conditions)
+}
+
+# Records lineage when the server sets ECONKIT_RUN_LOG; the user comes from an
+# optional X-User header set by an authenticating gateway.
+ek_api_record <- function(model_id, inputs, outputs, params, req, note, metrics = NULL) {
+  log <- Sys.getenv("ECONKIT_RUN_LOG")
+  if (!nzchar(log)) return(NA_character_)
+  ek_record_run(model_id, inputs = inputs, outputs = outputs, params = params,
+                metrics = metrics, user = req$HTTP_X_USER, note = note, log = log)$run_id
 }
 
 ek_api_conditions <- function(conditions) {

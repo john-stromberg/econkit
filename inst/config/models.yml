@@ -1,0 +1,157 @@
+# econkit model inventory.
+#
+# Fields:
+#   id:           stable model identifier, used in run logs and monitoring.
+#   name:         short description.
+#   function:     entry-point function; its help page holds the model card.
+#   version:      model version recorded with each run.
+#   category:     macro, forecasting, allocation or credit.
+#   risk_tier:    low, medium or high, by materiality of the intended use.
+#   status:       prototype, validated or retired.
+#   owner:        accountable owner.
+#   intended_use: what the model may be used for.
+#   last_review:  date of the last independent review (empty if never reviewed).
+#   monitoring:   metrics with optional `lower`/`upper` bounds and `drift_z`, the
+#                 absolute z-score versus recent history that flags drift.
+#
+# Organizations can add or override models with their own file in the same layout
+# (see ek_model_registry()).
+
+models:
+  - id: recession_probit
+    name: Recession probability probit
+    function: ek_recession_model
+    version: "1.0.0"
+    category: macro
+    risk_tier: medium
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Recession-risk monitoring and regime context; not a trading signal on its own.
+    last_review: ""
+    monitoring:
+      - metric: brier_score
+        upper: 0.2
+        drift_z: 3
+      - metric: auc
+        lower: 0.7
+        drift_z: 3
+  - id: markov_switching
+    name: Two-regime Markov-switching mean model
+    function: ek_markov_switching
+    version: "1.0.0"
+    category: macro
+    risk_tier: low
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Descriptive regime classification.
+    last_review: ""
+    monitoring:
+      - metric: regime_probability
+        drift_z: 3
+  - id: output_gap
+    name: Output gap (Hamilton or HP filter)
+    function: ek_output_gap
+    version: "1.0.0"
+    category: macro
+    risk_tier: low
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Cycle context for allocation and policy analysis.
+    last_review: ""
+    monitoring: []
+  - id: positioning_tilts
+    name: Regime playbook and constrained tilts
+    function: ek_positioning_tilts
+    version: "1.0.0"
+    category: allocation
+    risk_tier: medium
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Heuristic tilt suggestions reviewed by a portfolio manager; not an optimizer.
+    last_review: ""
+    monitoring:
+      - metric: one_way_turnover
+        upper: 0.2
+        drift_z: 3
+  - id: saa_assumptions
+    name: Historical SAA return and risk inputs
+    function: ek_saa_assumptions
+    version: "1.0.0"
+    category: allocation
+    risk_tier: medium
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Historical reference inputs for policy-mix review; not capital-market assumptions.
+    last_review: ""
+    monitoring: []
+  - id: nowcast_factor_bridge
+    name: Factor-bridge GDP-style nowcast
+    function: ek_nowcast
+    version: "1.0.0"
+    category: forecasting
+    risk_tier: medium
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Current-quarter activity tracking between official releases.
+    last_review: ""
+    monitoring:
+      - metric: r_squared
+        lower: 0.3
+      - metric: abs_error
+        drift_z: 3
+  - id: bvar_minnesota
+    name: Minnesota-prior Bayesian VAR
+    function: ek_bvar
+    version: "1.0.0"
+    category: forecasting
+    risk_tier: high
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Macro forecasts, bands and conditional scenarios for stress design.
+    last_review: ""
+    monitoring:
+      - metric: rmse
+        drift_z: 3
+      - metric: coverage
+        lower: 0.6
+        upper: 0.95
+  - id: satellite_ols
+    name: Macro satellite regression
+    function: ek_satellite_fit
+    version: "1.0.0"
+    category: credit
+    risk_tier: high
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Translate macro scenarios into losses, spreads and balances for stress testing.
+    last_review: ""
+    monitoring:
+      - metric: r_squared
+        lower: 0.3
+      - metric: abs_error
+        drift_z: 3
+  - id: credit_scenario_stress
+    name: Unemployment-hazard credit stress
+    function: ek_credit_scenario_stress
+    version: relative-unemployment-hazard-v1
+    category: credit
+    risk_tier: high
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Illustrative scenario losses; not CECL/IFRS 9 allowances or regulatory results.
+    last_review: ""
+    monitoring:
+      - metric: loss_rate
+        upper: 0.1
+        drift_z: 3
+  - id: macro_signals
+    name: Point-in-time macro signal snapshot
+    function: ek_build_signals
+    version: "0.1.0"
+    category: macro
+    risk_tier: medium
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Versioned macro inputs for PM positioning workflows.
+    last_review: ""
+    monitoring: []

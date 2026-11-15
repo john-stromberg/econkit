@@ -133,3 +133,35 @@ test_that("forecast and scenario-build routes run conditional BVARs", {
   expect_equal(ek_test_call(router, "/v1/scenarios/build",
                             body = '{"scenarios":[]}')$status, 400L)
 })
+
+test_that("models and runs routes expose governance data", {
+  skip_if_not_installed("plumber")
+  log <- withr::local_tempfile(fileext = ".jsonl")
+  withr::local_envvar(ECONKIT_API_KEYS = "", ECONKIT_RUN_LOG = "")
+  router <- ek_test_router()
+
+  models <- ek_test_call(router, "/v1/models")
+  expect_equal(models$body$meta$n_models, nrow(ek_model_registry()))
+  expect_true("bvar_minnesota" %in% models$body$data$id)
+  one <- ek_test_call(router, "/v1/models", "id=nowcast_factor_bridge")
+  expect_equal(nrow(one$body$data), 1L)
+  expect_true(all(one$body$monitoring$model_id == "nowcast_factor_bridge"))
+  expect_equal(ek_test_call(router, "/v1/models", "id=nope")$status, 404L)
+
+  expect_equal(ek_test_call(router, "/v1/runs")$status, 400L)
+  body <- '{"vars":["FEDFUNDS","UNRATE"],"p":1,"h":2,"draws":5}'
+  expect_null(ek_test_call(router, "/v1/forecast", body = body)$body$meta$run_id)
+
+  withr::local_envvar(ECONKIT_RUN_LOG = log)
+  forecast <- ek_test_call(router, "/v1/forecast", body = body)
+  expect_type(forecast$body$meta$run_id, "character")
+  nowcast <- ek_test_call(router, "/v1/nowcast", "vintage=2020-05-15")
+  runs <- ek_test_call(router, "/v1/runs")
+  expect_equal(runs$body$meta$n_runs, 2L)
+  expect_equal(runs$body$data$run_id, c(forecast$body$meta$run_id, nowcast$body$meta$run_id))
+  expect_equal(runs$body$data$model_id, c("bvar_minnesota", "nowcast_factor_bridge"))
+  expect_equal(ek_test_call(router, "/v1/runs", "model_id=bvar_minnesota")$body$meta$n_runs, 1L)
+  logged <- ek_read_runs(log)
+  expect_equal(jsonlite::fromJSON(logged$params[1])$vars, c("FEDFUNDS", "UNRATE"))
+  expect_true(grepl("r_squared", logged$metrics[2], fixed = TRUE))
+})
