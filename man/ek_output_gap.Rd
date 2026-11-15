@@ -44,7 +44,7 @@ the HP filter's end-point bias and spurious cycles. The HP filter is
 included as a benchmark.
 }
 \examples{
-gap <- ek_output_gap(macro_monthly$INDPRO)
+gap <- ek_output_gap(ek_get_series("INDPRO")$INDPRO)
 tail(gap)
 }
 \references{

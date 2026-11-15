@@ -60,7 +60,8 @@ timing precision within the horizon.
 }
 
 \examples{
-m <- ek_recession_model(macro_monthly, horizon = 12)
+d <- ek_get_series()
+m <- ek_recession_model(d, horizon = 12)
 m
 tail(predict(m))
 }

@@ -15,6 +15,8 @@ list(
   tar_target(raw, ek_get_series(source = source_name), cue = tar_cue(mode = "always")),
   tar_target(recession_model, ek_recession_model(raw, horizon = horizon)),
   tar_target(recession_backtest, ek_backtest_recession(raw, horizon = horizon, label_lag = 6)),
+  tar_target(signals, ek_build_signals(raw)),
+  tar_target(positioning_playbook, ek_positioning_playbook(raw)),
   tar_target(
     indicators,
     data.frame(
@@ -33,6 +35,25 @@ list(
       path <- "output/macro_indicators.csv"
       dir.create(dirname(path), showWarnings = FALSE)
       utils::write.csv(indicators, path, row.names = FALSE)
+      path
+    },
+    format = "file"
+  ),
+  tar_target(
+    positioning_playbook_csv,
+    {
+      path <- "output/positioning_playbook.csv"
+      dir.create(dirname(path), showWarnings = FALSE)
+      utils::write.csv(positioning_playbook, path, row.names = FALSE)
+      path
+    },
+    format = "file"
+  ),
+  tar_target(
+    signal_store,
+    {
+      path <- "output/macro-signals.rds"
+      ek_store_signals(signals, path)
       path
     },
     format = "file"

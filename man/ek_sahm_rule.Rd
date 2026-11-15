@@ -20,7 +20,8 @@ more has historically signalled the early months of a US recession
 (Sahm, 2019).
 }
 \examples{
-s <- ek_sahm_rule(macro_monthly$UNRATE)
+d <- ek_get_series()
+s <- ek_sahm_rule(d$UNRATE)
 tail(s)
 mean(s >= 0.5, na.rm = TRUE)
 }

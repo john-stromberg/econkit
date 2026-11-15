@@ -60,12 +60,21 @@ ek_get_series <- function(ids = NULL, source = c("sample", "fred"),
 }
 
 ek_get_sample <- function(ids) {
-  data <- econkit::macro_monthly
+  data <- ek_load_dataset("macro_monthly")
   missing <- setdiff(ids, names(data))
   if (length(missing) > 0) {
     stop("Series not in sample data: ", paste(missing, collapse = ", "), call. = FALSE)
   }
   data[, c("date", ids), drop = FALSE]
+}
+
+ek_load_dataset <- function(name) {
+  env <- new.env(parent = baseenv())
+  utils::data(list = name, package = "econkit", envir = env)
+  if (!exists(name, envir = env, inherits = FALSE)) {
+    stop("Bundled dataset not found: ", name, call. = FALSE)
+  }
+  get(name, envir = env, inherits = FALSE)
 }
 
 ek_get_fred <- function(ids, refresh = FALSE) {
@@ -180,7 +189,7 @@ ek_lag <- function(x, n = 1L) {
 #' @return A numeric vector the same length as `x`.
 #' @export
 #' @examples
-#' cpi <- macro_monthly$CPIAUCSL
+#' cpi <- ek_get_series("CPIAUCSL")$CPIAUCSL
 #' tail(ek_transform(cpi, "yoy"))
 ek_transform <- function(x, method = c("level", "diff", "pct", "yoy", "log_diff", "annualized"),
                          n = 1L, freq = 12L) {

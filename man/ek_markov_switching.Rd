@@ -47,7 +47,8 @@ durations across re-estimations.
 }
 
 \examples{
-g <- ek_transform(macro_monthly$INDPRO, "log_diff")[-1]
+d <- ek_get_series()
+g <- ek_transform(d$INDPRO, "log_diff")[-1]
 m <- ek_markov_switching(g)
 m
 }

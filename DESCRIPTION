@@ -9,7 +9,11 @@ Description: Practical, reproducible macroeconomic analysis for asset
     recession probability models with leakage-free backtests, the Sahm rule,
     output gap estimation (Hamilton regression filter and Hodrick-Prescott),
     growth/inflation regime classification, Markov-switching regime models,
-    and parameterised Quarto reporting.
+    regime-conditioned asset-class return analysis, constrained positioning
+    tilts, point-in-time signal snapshots, historical strategic allocation
+    inputs, versioned macro scenarios and a sample-backed read-only API.
+    Parameterised Quarto
+    reporting supports reproducible desk workflows.
 License: MIT + file LICENSE
 URL: https://github.com/john-stromberg/econkit
 BugReports: https://github.com/john-stromberg/econkit/issues
@@ -18,15 +22,20 @@ Depends:
 Imports: 
     stats,
     tools,
+    utils,
     yaml
 Suggests: 
+    DBI,
     covr,
     fredr,
     ggplot2,
     gt,
     knitr,
+    plumber,
     quarto,
+    RPostgres,
     rmarkdown,
+    RSQLite,
     targets,
     testthat (>= 3.0.0)
 VignetteBuilder: 

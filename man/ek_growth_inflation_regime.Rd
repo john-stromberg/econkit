@@ -37,7 +37,8 @@ Momentum is the change in each rate over \code{window} periods. Inputs should
 be rates, such as year-over-year growth and inflation from \code{\link[=ek_transform]{ek_transform()}}.
 }
 \examples{
-g <- ek_transform(macro_monthly$INDPRO, "yoy")
-p <- ek_transform(macro_monthly$CPIAUCSL, "yoy")
+d <- ek_get_series()
+g <- ek_transform(d$INDPRO, "yoy")
+p <- ek_transform(d$CPIAUCSL, "yoy")
 table(ek_growth_inflation_regime(g, p))
 }

@@ -25,3 +25,19 @@
 #' }
 #' @source Simulated; see `data-raw/macro_monthly.R`.
 "macro_monthly"
+
+#' Synthetic monthly asset-class returns
+#'
+#' Simulated monthly total returns aligned to [macro_monthly]. Returns have
+#' deliberately stylised conditional means by growth/inflation regime and
+#' correlated noise. This makes the positioning workflow reproducible and
+#' testable; these data are not market observations and must not be used for
+#' investment decisions or performance claims. Rebuild them with
+#' `data-raw/asset_returns.R`.
+#'
+#' @format A data frame with 672 rows and 9 columns: `date` and eight numeric
+#'   return columns (`global_equity`, `government_bonds`,
+#'   `investment_grade_credit`, `high_yield_credit`, `commodities`, `gold`,
+#'   `us_dollar` and `cash`). Returns are decimal monthly total returns.
+#' @source Simulated; see `data-raw/asset_returns.R`.
+"asset_returns"

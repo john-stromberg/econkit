@@ -12,7 +12,8 @@
 #'   The Hamilton Project, Brookings Institution.
 #' @export
 #' @examples
-#' s <- ek_sahm_rule(macro_monthly$UNRATE)
+#' d <- ek_get_series()
+#' s <- ek_sahm_rule(d$UNRATE)
 #' tail(s)
 #' mean(s >= 0.5, na.rm = TRUE)
 ek_sahm_rule <- function(unrate) {

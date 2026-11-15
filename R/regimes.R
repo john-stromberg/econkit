@@ -22,8 +22,9 @@
 #'   `Stagflation`, with `NA` where momentum is unavailable.
 #' @export
 #' @examples
-#' g <- ek_transform(macro_monthly$INDPRO, "yoy")
-#' p <- ek_transform(macro_monthly$CPIAUCSL, "yoy")
+#' d <- ek_get_series()
+#' g <- ek_transform(d$INDPRO, "yoy")
+#' p <- ek_transform(d$CPIAUCSL, "yoy")
 #' table(ek_growth_inflation_regime(g, p))
 ek_growth_inflation_regime <- function(growth, inflation, window = 3L) {
   if (length(growth) != length(inflation)) {
@@ -74,7 +75,8 @@ ek_growth_inflation_regime <- function(growth, inflation, window = 3L) {
 #'   57(2), 357-384.
 #' @export
 #' @examples
-#' g <- ek_transform(macro_monthly$INDPRO, "log_diff")[-1]
+#' d <- ek_get_series()
+#' g <- ek_transform(d$INDPRO, "log_diff")[-1]
 #' m <- ek_markov_switching(g)
 #' m
 ek_markov_switching <- function(x, k = 2L, max_iter = 500L, tol = 1e-8) {

@@ -24,7 +24,7 @@
 #'   831-843.
 #' @export
 #' @examples
-#' gap <- ek_output_gap(macro_monthly$INDPRO)
+#' gap <- ek_output_gap(ek_get_series("INDPRO")$INDPRO)
 #' tail(gap)
 ek_output_gap <- function(x, method = c("hamilton", "hp"), log = TRUE,
                           h = 24L, p = 12L, lambda = 129600) {

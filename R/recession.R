@@ -38,7 +38,8 @@
 #'   Economics and Statistics*, 80(1), 45-61.
 #' @export
 #' @examples
-#' m <- ek_recession_model(macro_monthly, horizon = 12)
+#' d <- ek_get_series()
+#' m <- ek_recession_model(d, horizon = 12)
 #' m
 #' tail(predict(m))
 ek_recession_model <- function(data, predictors = "T10Y3M", recession = "USREC",
@@ -124,7 +125,8 @@ predict.ek_recession_model <- function(object, newdata = NULL, ...) {
 #'   computed on the forecasts.
 #' @export
 #' @examples
-#' bt <- ek_backtest_recession(macro_monthly, horizon = 12, label_lag = 6)
+#' d <- ek_get_series()
+#' bt <- ek_backtest_recession(d, horizon = 12, label_lag = 6)
 #' attr(bt, "metrics")
 ek_backtest_recession <- function(data, predictors = "T10Y3M", recession = "USREC",
                                   horizon = 12L, target = c("at", "within"),

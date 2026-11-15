@@ -30,6 +30,6 @@ A numeric vector the same length as \code{x}.
 Applies a standard transformation for macro analysis.
 }
 \examples{
-cpi <- macro_monthly$CPIAUCSL
+cpi <- ek_get_series("CPIAUCSL")$CPIAUCSL
 tail(ek_transform(cpi, "yoy"))
 }

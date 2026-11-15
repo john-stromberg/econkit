@@ -48,6 +48,7 @@ with origin \code{j} has a label known at \code{j + horizon + label_lag}, so the
 at origin \code{i} uses rows \code{j <= i - horizon - label_lag}.
 }
 \examples{
-bt <- ek_backtest_recession(macro_monthly, horizon = 12, label_lag = 6)
+d <- ek_get_series()
+bt <- ek_backtest_recession(d, horizon = 12, label_lag = 6)
 attr(bt, "metrics")
 }
