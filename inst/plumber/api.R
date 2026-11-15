@@ -429,6 +429,117 @@ function(req, res) {
   }, error = function(error) ek_api_error(res, error))
 }
 
+#* Illustrative scenario NII and economic-value sensitivity for a sample bank
+#* @param source Curve and macro data source (default "sample").
+#* @param vintage Optional data vintage (YYYY-MM-DD).
+#* @param horizon_months Number of projected months to analyze (1 to 60).
+#* @param reference_scenario Scenario used to anchor rate changes.
+#* @serializer unboxedJSON list(na = "null")
+#* @get /v1/banking/alm
+function(req, res, source = "sample", vintage = "", horizon_months = "12",
+         reference_scenario = "base") {
+  tryCatch({
+    source <- ek_api_string(source, "source", "sample")
+    vintage <- if (nzchar(vintage)) ek_api_date(vintage, "vintage") else NULL
+    horizon_months <- ek_api_number(horizon_months, "horizon_months", 1, 60,
+                                    integer = TRUE)
+    reference_scenario <- ek_api_string(reference_scenario, "reference_scenario", "base")
+    curve_data <- ek_get_series(
+      c("DGS3MO", "DGS2", "DGS5", "DGS10", "DGS30"),
+      source = source, vintage = vintage
+    )
+    macro <- ek_get_series(c("UNRATE", "NFCI"), source = source, vintage = vintage)
+    fit <- ek_yield_curve_satellite_fit(curve_data, macro)
+    scenarios <- ek_scenario_library()
+    projection <- ek_yield_curve_project(fit, scenarios)
+    result <- ek_alm_scenario_analysis(
+      projection, reference_scenario = reference_scenario,
+      horizon_months = horizon_months
+    )
+    run_id <- ek_api_record(
+      "banking_alm_scenario_analysis",
+      list(curves = curve_data, macro = macro, scenario_inputs = scenarios$paths),
+      result$summary,
+      list(source = source, vintage = vintage, horizon_months = horizon_months,
+           reference_scenario = reference_scenario),
+      req, "GET /v1/banking/alm",
+      metrics = c(
+        max_abs_nii_change = max(abs(result$summary$nii_change)),
+        max_abs_eve_change = max(abs(result$summary$terminal_eve_change))
+      )
+    )
+    ek_api_alm_response(result, run_id)
+  }, error = function(error) ek_api_error(res, error))
+}
+
+#* Scenario NII and economic-value sensitivity for a bank balance sheet
+#* @param req JSON body: optional `portfolio`, `source`, `vintage`, `horizon_months`,
+#*   `reference_scenario`, `ar`, `curve_lambda`, `scenarios` and BVAR options as
+#*   for `/v1/scenarios/build`. Portfolio rows require `position`, `side`, `balance`,
+#*   `rate`, `tenor`, `repricing`, `duration`, `reset_months` and `deposit_beta`.
+#* @parser json list(simplifyVector = FALSE)
+#* @serializer unboxedJSON list(na = "null")
+#* @post /v1/banking/alm
+function(req, res) {
+  tryCatch({
+    own <- c("portfolio", "source", "vintage", "horizon_months",
+             "reference_scenario", "ar", "curve_lambda")
+    body <- ek_api_body(
+      req, c(own, "scenarios", "vars", "p", "lambda", "h", "draws", "level",
+             "seed", "version", "path")
+    )
+    source <- ek_api_string(body$source, "source", "sample")
+    vintage <- if (is.null(body$vintage)) NULL else ek_api_date(body$vintage, "vintage")
+    horizon_months <- ek_api_number(body$horizon_months, "horizon_months", 1, 60,
+                                    12L, integer = TRUE)
+    reference_scenario <- ek_api_string(body$reference_scenario, "reference_scenario", "base")
+    curve_lambda <- ek_api_number(body$curve_lambda, "curve_lambda", 0.01, 5, 0.6)
+    ar <- ek_api_flag(body$ar, "ar", TRUE)
+    portfolio <- if (is.null(body$portfolio)) {
+      NULL
+    } else {
+      ek_api_alm_portfolio(body$portfolio)
+    }
+    if (!is.null(body$scenarios) && is.null(body$vars)) {
+      body$vars <- list("FEDFUNDS", "UNRATE", "NFCI", "PCEPILFE", "INDPRO")
+    }
+    curve_data <- ek_get_series(
+      c("DGS3MO", "DGS2", "DGS5", "DGS10", "DGS30"),
+      source = source, vintage = vintage
+    )
+    macro <- ek_get_series(c("UNRATE", "NFCI"), source = source, vintage = vintage)
+    fit <- ek_yield_curve_satellite_fit(
+      curve_data, macro, ar = ar, lambda = curve_lambda
+    )
+    scenario <- ek_api_credit_scenarios(body, own)
+    missing <- setdiff(fit$drivers, names(scenario$library$paths))
+    if (length(missing)) {
+      stop("Scenario paths must include curve drivers: ", paste(missing, collapse = ", "),
+           ".", call. = FALSE)
+    }
+    projection <- ek_yield_curve_project(fit, scenario$library)
+    result <- ek_alm_scenario_analysis(
+      projection, portfolio = portfolio, reference_scenario = reference_scenario,
+      horizon_months = horizon_months
+    )
+    run_id <- ek_api_record(
+      "banking_alm_scenario_analysis",
+      list(curves = curve_data, macro = macro, scenario_inputs = scenario$inputs),
+      result$summary,
+      list(source = source, vintage = if (is.null(vintage)) NULL else format(vintage),
+           curve_lambda = curve_lambda, ar = ar, horizon_months = horizon_months,
+           reference_scenario = reference_scenario,
+           portfolio_source = result$portfolio_source),
+      req, "POST /v1/banking/alm",
+      metrics = c(
+        max_abs_nii_change = max(abs(result$summary$nii_change)),
+        max_abs_eve_change = max(abs(result$summary$terminal_eve_change))
+      )
+    )
+    ek_api_alm_response(result, run_id)
+  }, error = function(error) ek_api_error(res, error))
+}
+
 #* Illustrative credit stress for a sample banking portfolio
 #* @get /v1/banking/credit-stress
 function() {
@@ -782,6 +893,29 @@ ek_api_ecl_response <- function(result, include_paths, run_id) {
   )
 }
 
+ek_api_alm_response <- function(result, run_id) {
+  dates <- function(df) {
+    for (col in names(df)) {
+      if (inherits(df[[col]], "Date")) df[[col]] <- format(df[[col]])
+    }
+    df
+  }
+  list(
+    meta = list(
+      model = "ek_alm_scenario_analysis", model_version = result$model_version,
+      reference_scenario = result$reference_scenario,
+      horizon_months = result$horizon_months,
+      scenario_version = I(unique(result$summary$version)),
+      scenario_synthetic = result$scenario_synthetic,
+      portfolio_source = result$portfolio_source,
+      run_id = run_id
+    ),
+    summary = dates(result$summary),
+    paths = dates(result$paths),
+    positions = dates(result$positions)
+  )
+}
+
 # Converts a JSON array of segment objects to a data frame. `segment` and any
 # `text` columns are strings; other columns are numbers. Optional columns
 # must appear in every object or in none.
@@ -811,5 +945,34 @@ ek_api_portfolio <- function(portfolio, numeric, optional = NULL, text = NULL) {
     if (is_text) as.character(unlist(values)) else as.numeric(unlist(values))
   })
   names(out) <- columns
+  as.data.frame(out, stringsAsFactors = FALSE)
+}
+
+ek_api_alm_portfolio <- function(portfolio) {
+  required <- c("position", "side", "balance", "rate", "tenor", "repricing",
+                "duration", "reset_months", "deposit_beta")
+  invalid <- function() {
+    stop("`portfolio` must be an array with one complete ALM position per element.")
+  }
+  if (!is.list(portfolio) || !length(portfolio) || !is.null(names(portfolio))) invalid()
+  fields <- lapply(portfolio, function(row) {
+    if (!is.list(row) || is.null(names(row)) || anyDuplicated(names(row))) invalid()
+    names(row)
+  })
+  if (!all(vapply(fields, setequal, logical(1), required))) invalid()
+  text <- c("position", "side", "tenor", "repricing")
+  out <- lapply(required, function(column) {
+    values <- lapply(portfolio, `[[`, column)
+    is_text <- column %in% text
+    valid <- vapply(values, function(value) {
+      length(value) == 1L && (if (is_text) is.character(value) else is.numeric(value))
+    }, logical(1))
+    if (!all(valid)) {
+      stop("Portfolio field `", column, "` must be ",
+           if (is_text) "a string" else "a number", " in every position.")
+    }
+    if (is_text) as.character(unlist(values)) else as.numeric(unlist(values))
+  })
+  names(out) <- required
   as.data.frame(out, stringsAsFactors = FALSE)
 }

@@ -144,6 +144,21 @@ models:
         lower: 0.3
       - metric: rmse
         drift_z: 3
+  - id: banking_alm_scenario_analysis
+    name: Banking NII and economic-value sensitivity
+    function: ek_alm_scenario_analysis
+    version: alm-static-repricing-v1
+    category: rates
+    risk_tier: high
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Illustrative static-balance-sheet NII and duration-based EVE scenario analysis; not regulatory measures or valuation.
+    last_review: ""
+    monitoring:
+      - metric: max_abs_nii_change
+        drift_z: 3
+      - metric: max_abs_eve_change
+        drift_z: 3
   - id: satellite_ols
     name: Macro satellite regression
     function: ek_satellite_fit
