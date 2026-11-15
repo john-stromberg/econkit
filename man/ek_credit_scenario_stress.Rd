@@ -7,7 +7,8 @@
 ek_credit_scenario_stress(
   scenarios = ek_scenario_library(),
   portfolio = NULL,
-  reference_scenario = "base"
+  reference_scenario = "base",
+  component_fit = NULL
 )
 }
 \arguments{
@@ -25,10 +26,15 @@ unemployment. Defaults to a synthetic portfolio.}
 
 \item{reference_scenario}{Scenario ID used as the reference for each
 version. Defaults to \code{"base"}.}
+
+\item{component_fit}{Optional \code{ek_credit_lgd_ead_satellites} fit. When
+supplied, scenario LGD and EAD multipliers replace the static portfolio
+assumptions month by month in expected-loss calculations.}
 }
 \value{
 A list with scenario \code{summary}, segment-level \code{segments}, model
-version and input provenance. Amounts use the same units as \code{ead}.
+version and input provenance. Component-adjusted runs also return
+\code{component_paths}. Amounts use the same units as \code{ead}.
 }
 \description{
 Calculates illustrative scenario-specific credit losses for homogeneous

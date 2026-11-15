@@ -63,3 +63,24 @@
 #' }
 #' @source Simulated; see `data-raw/credit_default_rates.R`.
 "credit_default_rates"
+
+#' Synthetic monthly LGD and EAD component history by credit segment
+#'
+#' Simulated loss-given-default rates and exposure indices for
+#' `commercial_real_estate`, `commercial_industrial` and `consumer`, aligned to
+#' [macro_monthly]. LGD and EAD respond to unemployment and financial
+#' conditions with persistent noise. The EAD index is dimensionless and is
+#' used only to estimate relative exposure changes from the latest observation.
+#' These are synthetic inputs for workflow demonstrations, not bank,
+#' regulatory or industry loss data. Rebuild with
+#' `data-raw/credit_loss_components.R`.
+#'
+#' @format A long data frame with 2016 rows and 4 columns:
+#' \describe{
+#'   \item{date}{First day of the month.}
+#'   \item{segment}{Illustrative credit segment.}
+#'   \item{lgd}{Synthetic loss-given-default proportion in `(0, 1)`.}
+#'   \item{ead_index}{Positive dimensionless synthetic exposure index.}
+#' }
+#' @source Simulated; see `data-raw/credit_loss_components.R`.
+"credit_loss_components"

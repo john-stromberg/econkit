@@ -28,8 +28,12 @@
 #'   unemployment. Defaults to a synthetic portfolio.
 #' @param reference_scenario Scenario ID used as the reference for each
 #'   version. Defaults to `"base"`.
+#' @param component_fit Optional `ek_credit_lgd_ead_satellites` fit. When
+#'   supplied, scenario LGD and EAD multipliers replace the static portfolio
+#'   assumptions month by month in expected-loss calculations.
 #' @return A list with scenario `summary`, segment-level `segments`, model
-#'   version and input provenance. Amounts use the same units as `ead`.
+#'   version and input provenance. Component-adjusted runs also return
+#'   `component_paths`. Amounts use the same units as `ead`.
 #' @export
 #' @examples
 #' stress <- ek_credit_scenario_stress()
@@ -39,7 +43,8 @@
 #' ek_credit_scenario_stress(portfolio = portfolio)$summary
 ek_credit_scenario_stress <- function(scenarios = ek_scenario_library(),
                                       portfolio = NULL,
-                                      reference_scenario = "base") {
+                                      reference_scenario = "base",
+                                      component_fit = NULL) {
   ek_validate_scenario_library(scenarios) # nolint: object_usage_linter
   if (!"UNRATE" %in% names(scenarios$paths)) {
     ek_credit_input_error("Credit stress requires an `UNRATE` column in scenario paths.")
@@ -56,6 +61,17 @@ ek_credit_scenario_stress <- function(scenarios = ek_scenario_library(),
     )
   }
   ek_validate_credit_portfolio(portfolio)
+  if (!is.null(component_fit) &&
+        !inherits(component_fit, "ek_credit_lgd_ead_satellites")) {
+    ek_credit_input_error(
+      "`component_fit` must be an ek_credit_lgd_ead_satellites object or NULL."
+    )
+  }
+  component_paths <- if (is.null(component_fit)) {
+    NULL
+  } else {
+    ek_credit_lgd_ead_project(component_fit, scenarios) # nolint: object_usage_linter
+  }
   if (!is.character(reference_scenario) || length(reference_scenario) != 1L ||
         is.na(reference_scenario) || !nzchar(trimws(reference_scenario))) {
     ek_credit_input_error("`reference_scenario` must be one non-empty string.")
@@ -80,6 +96,79 @@ ek_credit_scenario_stress <- function(scenarios = ek_scenario_library(),
       -expm1(-hazard)
     }, numeric(1))
     expected_loss <- portfolio$ead * portfolio$lgd * cumulative_pd
+    component_detail <- NULL
+    if (!is.null(component_paths)) {
+      missing_segments <- setdiff(portfolio$segment, component_fit$segments)
+      if (length(missing_segments)) {
+        ek_credit_input_error(
+          "Component fit is missing portfolio segment(s): ",
+          paste(missing_segments, collapse = ", "), "."
+        )
+      }
+      component_results <- lapply(seq_len(nrow(portfolio)), function(i) {
+        segment <- portfolio$segment[i]
+        component <- component_paths[
+          component_paths$scenario_id == path$scenario_id[1] &
+            component_paths$version == path$version[1] &
+            component_paths$segment == segment,
+          , drop = FALSE
+        ]
+        component <- component[order(component$step), , drop = FALSE]
+        if (nrow(component) != nrow(path) ||
+              !identical(component$step, path$step) ||
+              !identical(component$date, path$date)) {
+          ek_credit_input_error(
+            "LGD/EAD projections must align with each credit scenario path."
+          )
+        }
+        lgd_offset <- stats::qlogis(portfolio$lgd[i]) -
+          component_fit$models[[segment]]$lgd$last_y
+        projected_lgd <- stats::plogis(component$logit_lgd + lgd_offset)
+        projected_ead <- portfolio$ead[i] * component$ead_multiplier
+        adjustment <- portfolio$unemployment_beta[i] * unemployment_difference
+        hazard <- -log1p(-portfolio$pd_12m[i]) / 12 * exp(adjustment)
+        survival <- exp(-cumsum(hazard))
+        marginal_pd <- -diff(c(1, survival))
+        loss <- marginal_pd * projected_lgd * projected_ead
+        if (any(!is.finite(loss)) || any(!is.finite(projected_lgd)) ||
+              any(projected_lgd <= 0 | projected_lgd >= 1) ||
+              any(!is.finite(projected_ead)) || any(projected_ead <= 0)) {
+          ek_credit_input_error("Credit component stress produced invalid losses.")
+        }
+        list(
+          segment = data.frame(
+            segment = segment, ead = portfolio$ead[i], pd_12m = portfolio$pd_12m[i],
+            lgd = portfolio$lgd[i], unemployment_beta = portfolio$unemployment_beta[i],
+            cumulative_pd = 1 - tail(survival, 1),
+            mean_lgd = mean(projected_lgd), mean_ead = mean(projected_ead),
+            ending_ead_multiplier = tail(component$ead_multiplier, 1),
+            expected_loss = sum(loss), stringsAsFactors = FALSE
+          ),
+          paths = data.frame(
+            scenario_id = path$scenario_id[1], version = path$version[1],
+            segment = segment, step = path$step, date = path$date,
+            unemployment_gap = unemployment_difference, hazard = hazard,
+            marginal_pd = marginal_pd, survival = survival,
+            lgd = projected_lgd, ead = projected_ead,
+            expected_loss = loss, stringsAsFactors = FALSE
+          )
+        )
+      })
+      component_segments <- do.call(rbind, lapply(component_results, `[[`, "segment"))
+      component_detail <- do.call(rbind, lapply(component_results, `[[`, "paths"))
+      expected_loss <- component_segments$expected_loss
+      cumulative_pd <- component_segments$cumulative_pd
+    }
+    segment_results <- if (is.null(component_fit)) {
+      data.frame(
+        segment = portfolio$segment, ead = portfolio$ead, pd_12m = portfolio$pd_12m,
+        lgd = portfolio$lgd, unemployment_beta = portfolio$unemployment_beta,
+        cumulative_pd = cumulative_pd, expected_loss = expected_loss,
+        stringsAsFactors = FALSE
+      )
+    } else {
+      component_segments
+    }
     list(
       summary = data.frame(
         scenario_id = path$scenario_id[1],
@@ -95,22 +184,16 @@ ek_credit_scenario_stress <- function(scenarios = ek_scenario_library(),
       segments = data.frame(
         scenario_id = path$scenario_id[1],
         version = path$version[1],
-        segment = portfolio$segment,
-        ead = portfolio$ead,
-        pd_12m = portfolio$pd_12m,
-        lgd = portfolio$lgd,
-        unemployment_beta = portfolio$unemployment_beta,
-        cumulative_pd = cumulative_pd,
-        expected_loss = expected_loss,
-        stringsAsFactors = FALSE
-      )
+        segment_results, stringsAsFactors = FALSE
+      ),
+      component_paths = component_detail
     )
   })
   summary <- do.call(rbind, lapply(results, `[[`, "summary"))
   segments <- do.call(rbind, lapply(results, `[[`, "segments"))
   rownames(summary) <- NULL
   rownames(segments) <- NULL
-  list(
+  out <- list(
     model_version = "relative-unemployment-hazard-v1",
     reference_scenario = reference_scenario,
     scenario_synthetic = scenarios$synthetic,
@@ -118,6 +201,14 @@ ek_credit_scenario_stress <- function(scenarios = ek_scenario_library(),
     summary = summary,
     segments = segments
   )
+  if (!is.null(component_fit)) {
+    paths <- do.call(rbind, lapply(results, `[[`, "component_paths"))
+    rownames(paths) <- NULL
+    out$component_fit_version <- component_fit$model_version
+    out$component_fit_synthetic <- component_fit$synthetic
+    out$component_paths <- paths
+  }
+  out
 }
 
 ek_validate_credit_portfolio <- function(portfolio) {
@@ -149,8 +240,9 @@ ek_validate_credit_portfolio <- function(portfolio) {
   invisible(portfolio)
 }
 
-ek_credit_input_error <- function(message) {
-  stop(errorCondition(message, class = "econkit_credit_input_error"))
+ek_credit_input_error <- function(...) {
+  stop(errorCondition(paste0(..., collapse = ""),
+                      class = "econkit_credit_input_error"))
 }
 
 # Splits scenario paths by scenario and version, each ordered by step and

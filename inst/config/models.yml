@@ -232,6 +232,23 @@ models:
       - metric: unemployment_beta
         lower: 0
         drift_z: 3
+  - id: credit_lgd_ead_satellite
+    name: Macro-linked credit LGD and EAD
+    function: ek_credit_lgd_ead_satellite_fit
+    version: credit-lgd-ead-satellite-v1
+    category: credit
+    risk_tier: high
+    status: prototype
+    owner: econkit maintainers
+    intended_use: Illustrative macro-linked LGD and relative EAD paths for scenario stress; requires institution-specific loan and collateral data.
+    last_review: ""
+    monitoring:
+      - metric: lgd_r_squared
+        lower: 0.3
+        drift_z: 3
+      - metric: ead_r_squared
+        lower: 0.3
+        drift_z: 3
   - id: credit_lifetime_ecl
     name: Scenario-weighted lifetime expected credit loss
     function: ek_credit_lifetime_ecl

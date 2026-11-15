@@ -666,9 +666,16 @@ function(req, res) {
 }
 
 #* Illustrative credit stress for a sample banking portfolio
+#* @param include_components Include scenario-driven LGD and EAD projections ("true"/"false").
 #* @get /v1/banking/credit-stress
-function() {
-  ek_credit_scenario_stress()
+function(res, include_components = "false") {
+  tryCatch({
+    include <- ek_api_query_flag(include_components, "include_components")
+    fit <- if (include) ek_credit_lgd_ead_satellite_fit() else NULL
+    result <- ek_credit_scenario_stress(component_fit = fit)
+    if (include) result$component_paths$date <- format(result$component_paths$date)
+    result
+  }, error = function(error) ek_api_error(res, error))
 }
 
 #* Segment default-hazard sensitivities calibrated on the synthetic sample history
@@ -690,33 +697,68 @@ function(res, drivers = "UNRATE") {
 #* @param req JSON body: optional `portfolio` array of segments, `reference_scenario`
 #*   (default "base") and `scenarios`, BVAR condition sets as for /v1/scenarios/build
 #*   (with the same model options; `vars` must include UNRATE). Without `scenarios`,
-#*   the sample scenario library is used.
+#*   the sample scenario library is used. Set `include_components` to true to apply
+#*   synthetic LGD/EAD satellites.
 #* @parser json list(simplifyVector = FALSE)
 #* @post /v1/banking/credit-stress
 function(req, res) {
   tryCatch({
-    body <- ek_api_body(req, c("portfolio", "reference_scenario", "scenarios", "vars",
-                               "source", "vintage", "p", "lambda", "h", "draws", "level",
-                               "seed", "version", "path"))
+    body <- ek_api_body(req, c("portfolio", "reference_scenario", "include_components",
+                               "scenarios", "vars", "source", "vintage", "p", "lambda",
+                               "h", "draws", "level", "seed", "version", "path"))
     portfolio <- if (is.null(body$portfolio)) {
       NULL
     } else {
       ek_api_portfolio(body$portfolio, c("ead", "pd_12m", "lgd", "unemployment_beta"))
     }
     reference <- ek_api_string(body$reference_scenario, "reference_scenario", "base")
-    source <- ek_api_credit_scenarios(body, c("portfolio", "reference_scenario"))
+    include_components <- ek_api_flag(body$include_components, "include_components", FALSE)
+    source <- ek_api_credit_scenarios(
+      body, c("portfolio", "reference_scenario", "include_components")
+    )
     scenarios <- source$library
     inputs <- c(list(portfolio = portfolio), source$inputs)
-    result <- ek_credit_scenario_stress(scenarios, portfolio, reference)
+    component_fit <- if (include_components) {
+      ek_credit_lgd_ead_satellite_fit()
+    } else {
+      NULL
+    }
+    if (include_components) {
+      inputs$component_history <- ek_load_dataset("credit_loss_components")
+      inputs$component_macro <- ek_get_series(component_fit$drivers)
+    }
+    result <- ek_credit_scenario_stress(
+      scenarios, portfolio, reference, component_fit = component_fit
+    )
+    component_run_id <- NA_character_
+    if (include_components) {
+      component_run_id <- ek_api_record(
+        "credit_lgd_ead_satellite", inputs[c("component_history", "component_macro")],
+        result$component_paths,
+        list(model_version = component_fit$model_version, drivers = component_fit$drivers,
+             scenario_version = unique(scenarios$paths$version)),
+        req, "POST /v1/banking/credit-stress",
+        metrics = c(
+          lgd_r_squared = mean(component_fit$fit$lgd_r_squared),
+          ead_r_squared = mean(component_fit$fit$ead_r_squared)
+        )
+      )
+    }
     result$scenario_version <- unique(scenarios$paths$version)
     run_id <- ek_api_record(
       "credit_scenario_stress", inputs, result$summary,
       list(reference_scenario = reference, scenario_version = result$scenario_version,
-           scenarios = body$scenarios, portfolio_source = result$portfolio_source),
+           scenarios = body$scenarios, portfolio_source = result$portfolio_source,
+           include_components = include_components,
+           component_model_version = result$component_fit_version),
       req, "POST /v1/banking/credit-stress",
       metrics = c(loss_rate = max(result$summary$loss_rate))
     )
     if (!is.na(run_id)) result$run_id <- run_id
+    if (include_components) {
+      if (!is.na(component_run_id)) result$component_run_id <- component_run_id
+      result$component_paths$date <- format(result$component_paths$date)
+    }
     result
   }, error = function(error) ek_api_error(res, error))
 }
@@ -990,6 +1032,16 @@ ek_api_flag <- function(x, name, default) {
   if (is.null(x)) return(default)
   if (!is.logical(x) || length(x) != 1L || is.na(x)) stop("`", name, "` must be true or false.")
   x
+}
+
+ek_api_query_flag <- function(x, name) {
+  if (!is.character(x) || length(x) != 1L || is.na(x)) {
+    stop("`", name, "` must be true or false.")
+  }
+  value <- tolower(trimws(x))
+  if (value == "true") return(TRUE)
+  if (value == "false") return(FALSE)
+  stop("`", name, "` must be true or false.")
 }
 
 ek_api_ecl_response <- function(result, include_paths, run_id) {

@@ -169,7 +169,11 @@ the same synthetic scenarios without persisting the portfolio. Add
 `scenarios` (condition sets, with the `/v1/scenarios/build` model options) to
 stress against BVAR conditional scenarios instead; `vars` must include
 `UNRATE` and the scenarios must include the `reference_scenario` (default
-`"base"`). `GET /v1/banking/pd-sensitivity?drivers=UNRATE` returns segment
+`"base"`). Add `"include_components": true` to a POST request or
+`?include_components=true` to the GET request to apply the bundled synthetic
+macro-linked LGD/EAD satellites. Component projections are illustrative and
+require institution-specific loss and exposure histories plus independent
+validation before professional use. `GET /v1/banking/pd-sensitivity?drivers=UNRATE` returns segment
 sensitivities calibrated on the synthetic default-rate history:
 
 ```json
@@ -184,10 +188,10 @@ sensitivities calibrated on the synthetic default-rate history:
 ```
 
 The sample credit stress adjusts each segment's default hazard using monthly
-unemployment differences from the base path over the scenario horizon only. It
-assumes constant exposure and LGD and does not model scenario probabilities,
-lifetime terms, discounting or accounting stages; use the lifetime ECL below for
-those. Inputs and sensitivities are illustrative; results are not
+unemployment differences from the base path over the scenario horizon only.
+Without component satellites, exposure and LGD remain constant. Credit stress
+does not model scenario probabilities, lifetime terms, discounting or accounting
+stages; use the lifetime ECL below for those. Inputs and sensitivities are illustrative; results are not
 CECL/IFRS 9 allowances, regulatory stress results or calibrated forecasts.
 Amounts must use common units; no currency conversion is performed. Output
 as-of dates and vintages describe the scenarios, not the supplied portfolio.
@@ -198,8 +202,8 @@ parameters) or recommend allocations. Scenario paths
 and asset shocks are synthetic illustrations, not forecasts or calibrated
 market estimates. Sample endpoints identify synthetic data.
 
-In R, calibrate sensitivities from a default-rate history and stress against
-BVAR conditional scenarios:
+In R, calibrate sensitivities from default-rate and LGD/EAD histories and stress
+against BVAR conditional scenarios:
 
 ```r
 sens <- ek_credit_pd_sensitivity()   # or your own history and macro data
@@ -212,7 +216,9 @@ scenarios <- ek_scenario_from_forecast(list(
   base = ek_bvar_forecast(fit, h = 12, seed = 1),
   hike = ek_bvar_forecast(fit, h = 12, conditions = list(FEDFUNDS = rep(7, 6)), seed = 1)
 ))
-ek_credit_scenario_stress(scenarios, portfolio)$summary
+components <- ek_credit_lgd_ead_satellite_fit()
+ek_credit_scenario_stress(scenarios, portfolio,
+                          component_fit = components)$summary
 ```
 
 Conditioning on the policy rate alone gives reduced-form co-movements; in the
@@ -441,7 +447,7 @@ loan tapes or deal data.
 | 2. Service platform | Done: Plumber API, optional PostgreSQL store, Parquet/CSV export, API keys. Next: Excel/CSV feed, async jobs and webhooks, alerting on monitoring breaches, maker/checker overrides on top of run lineage | Core C, D | Partial | Not data-dependent |
 | 3. Scenario library | Sample and BVAR-built versioned scenarios, vintages, SAA stress | Core B | Done | Public; Vendor for asset shocks |
 | 4. Rates and curves | Synthetic multi-tenor data, Nelson-Siegel fit, macro satellites and scenario-implied curves; static-balance-sheet NII/EVE with deposit betas; matched-tenor FTP; DCF/WACC and DCM rate inputs | BVAR, satellites, scenarios | Done (illustrative) | Public FRED/ALFRED par yields; vendor for internal funding curves, credit spreads and balance sheets |
-| 5. Credit and stress | Done: PD sensitivity calibration, scenario credit stress, scenario-weighted CECL/IFRS 9-style lifetime ECL. Next: LGD/EAD satellites, rating migration, concentration, economic capital and RWA, ICAAP-style capital, RAROC, CRE stress, leveraged-finance covenant stress, securitization collateral | Satellites, scenarios | Partial | Vendor (loan tapes, default and recovery history) |
+| 5. Credit and stress | Done: PD sensitivity calibration, scenario credit stress, scenario-weighted CECL/IFRS 9-style lifetime ECL, synthetic LGD/EAD satellites integrated into scenario stress. Next: rating migration, concentration, economic capital and RWA, ICAAP-style capital, RAROC, CRE stress, leveraged-finance covenant stress, securitization collateral | Satellites, scenarios | Partial | Vendor (loan tapes, default and recovery history) |
 | 6. Monitoring and signals | Early-warning watchlist, CRE monitor, DCM/ECM market-window signal, tail-risk overlays | Signal store, monitoring | Planned | Public and Vendor |
 | 7. Strategic and commercial | Done: SAA. Next: factor exposures, VaR/ES with backtests, scenario P&L, factor rotation, manager due diligence, fee and pipeline forecasts, loan pricing, client reporting | All engines | Partial | Vendor (returns, holdings, deal pipeline) |
 | 8. Forecast quality | Vintage-based forecast evaluation, nowcast and BVAR backtests | Vintages, BVAR, nowcast | Planned | Public (ALFRED) |

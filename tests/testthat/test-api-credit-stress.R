@@ -42,6 +42,52 @@ test_that("credit stress API accepts portfolio JSON and rejects invalid inputs",
   expect_match(result$body$error, "require `scenarios`")
 })
 
+test_that("credit stress API optionally applies LGD and EAD satellites", {
+  skip_if_not_installed("plumber")
+  withr::local_envvar(ECONKIT_API_KEYS = "", ECONKIT_RUN_LOG = "")
+  router <- ek_test_router()
+
+  post <- ek_test_call(
+    router, "/v1/banking/credit-stress",
+    body = '{"include_components":true}'
+  )
+  expect_equal(post$status, 200L)
+  expect_identical(post$body$component_fit_version, "credit-lgd-ead-satellite-v1")
+  expect_equal(nrow(post$body$component_paths), 36L * 3L)
+  expect_true(all(post$body$component_paths$expected_loss > 0))
+
+  get <- ek_test_call(
+    router, "/v1/banking/credit-stress", query = "include_components=true"
+  )
+  expect_equal(get$status, 200L)
+  expect_equal(nrow(get$body$component_paths), 36L * 3L)
+  expect_equal(
+    ek_test_call(router, "/v1/banking/credit-stress",
+                 query = "include_components=maybe")$status,
+    400L
+  )
+})
+
+test_that("component stress records satellite and stress lineage separately", {
+  skip_if_not_installed("plumber")
+  log <- withr::local_tempfile(fileext = ".jsonl")
+  withr::local_envvar(ECONKIT_API_KEYS = "", ECONKIT_RUN_LOG = log)
+  router <- ek_test_router()
+  result <- ek_test_call(
+    router, "/v1/banking/credit-stress",
+    body = '{"include_components":true}'
+  )
+
+  expect_equal(result$status, 200L)
+  expect_type(result$body$component_run_id, "character")
+  expect_type(result$body$run_id, "character")
+  runs <- ek_read_runs(log)
+  expect_setequal(runs$model_id, c("credit_lgd_ead_satellite", "credit_scenario_stress"))
+  component_run <- runs[runs$model_id == "credit_lgd_ead_satellite", ]
+  expect_equal(component_run$run_id, result$body$component_run_id)
+  expect_match(component_run$metrics, "lgd_r_squared")
+})
+
 test_that("credit stress API runs BVAR scenarios and records lineage", {
   skip_if_not_installed("plumber")
   log <- withr::local_tempfile(fileext = ".jsonl")
